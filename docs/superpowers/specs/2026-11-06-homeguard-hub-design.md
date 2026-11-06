@@ -39,17 +39,17 @@ The product has to be something a customer could set up alone, so setup goes thr
 2. In the app, the user taps **Add hub**. The app scans for `HomeGuard-` devices, connects, lists nearby Wi-Fi networks from the hub, and the user picks one and enters the password.
 3. The app sends the credentials using Espressif's standard provisioning protocol (Arduino `WiFiProv`, BLE scheme, security level 1 with a proof-of-possession code).
 4. The hub joins Wi-Fi. A wrong password is reported back to the app, which asks again. On success the hub turns Bluetooth off for good (frees memory for TLS), signs in to Firebase, and starts reporting.
-5. The app stores the device ID (`homeguard-xxxxxx`, from the Bluetooth name) as `settings.acDeviceId`, then waits until the hub's `telemetry.lastSeenAt` appears (up to 60 s) before saying "Hub connected".
+5. The app stores the device ID (`homeguard-xxxxxx`, from the Bluetooth name) as `settings.acDeviceId`, then waits until the hub's `telemetry.lastSeenAt` is newer than the moment setup started (up to 90 s) before saying "Hub connected". A hub being set up again already has an old `lastSeenAt`, so "appears" is not enough.
 6. The app goes straight to **Teach remote**.
 
 On later boots the hub uses its saved Wi-Fi and skips Bluetooth.
 
 ### 2. Teach remote
 
-1. The user taps **Teach remote** (in setup, and later in Settings → AC). The app writes `learn/request`.
-2. The hub sets `learn/status.state = listening` and listens on GPIO14 for 30 s. The app shows "Point your remote at the hub and press OFF." Status light: fast blink.
+1. The user taps **Teach remote** (in setup, and later in Settings → AC). The app first asks them to turn the AC on with its remote, then writes `learn/request`.
+2. The hub sets `learn/status.state = listening` and listens on GPIO14 for 30 s. The app shows "Point your remote at the hub and press OFF." The AC will usually turn off too, which is expected. Status light: fast blink. Like commands, a `learn/request` is only acted on if it is new and under 2 minutes old, so a leftover request never starts listening after a reboot.
 3. The hub takes the first frame that is long enough to be real. It saves it to flash (survives power loss), works out its `kind` (see contract), writes `remote`, and sets `state = saved`. Too short or noisy → `rejected`. Nothing in 30 s → `timeout`. The app offers **Try again** for both.
-4. After `saved`, the app asks "Test it now?" Yes sends a normal OFF command and asks the user "Did your AC turn off?" No → back to step 1.
+4. After `saved`, the app asks the user to turn the AC back on, then offers **Test it**. Test sends a normal OFF command and asks "Did your AC turn off?" No → back to step 1.
 
 Teaching again replaces the old code.
 
@@ -95,7 +95,8 @@ Built by a subagent on its own branch in `~/repos/ac-guard`, following the contr
 2. **Teach remote screen.** Writes `learn/request`, follows `learn/status`, has Try again, and the "Test it now?" step.
 3. **Honest command feedback.** Reads `commands/result` and shows the table's messages. The dashboard stops implying the AC is off because a command was sent.
 4. **"Remote not taught" flag.** When `remote.learned` is `false`, the dashboard and the AC notification point the user to Teach remote.
-5. **Demo mode keeps working.** Every new screen has a mock path, like the existing mock Firebase, so the app still demos without hardware.
+5. **Real online/offline status.** The app currently shows the hub as online whenever the node exists, because nothing writes `connectionStatus`. It should instead treat the hub as offline when `telemetry.lastSeenAt` is more than 3 minutes old.
+6. **Demo mode keeps working.** Every new screen has a mock path, like the existing mock Firebase, so the app still demos without hardware.
 
 ## Goals
 
@@ -135,6 +136,9 @@ Built by a subagent on its own branch in `~/repos/ac-guard`, following the contr
 - Device ID from the MAC (`homeguard-xxxxxx`).
 - 30 s learn window, 2-minute command freshness, 3×300 ms repeats only for `ac-state` codes.
 - BOOT button for factory reset, onboard LED for status.
+- Add hub only has to work on iOS (the app is iOS-first). Android must still build.
+- If no React Native wrapper for Espressif's provisioning works with Expo SDK 55 and React Native 0.83 (new architecture only), the fallback is a small Expo native module around Espressif's iOS provisioning SDK, added through a config plugin since `ios/` is generated. Not a Wi-Fi hotspot, and not hardcoded Wi-Fi.
+- Teach remote asks the user to turn the AC on first, and to turn it back on before Test, because pressing OFF while teaching also turns the AC off.
 - "Teach remote" instead of "Calibrate": the app already has a thermal **calibration** feature.
 - Toolchain: PlatformIO with the Arduino framework (`FirebaseClient` by mobizt, `IRremoteESP8266`, `Adafruit AHTX0`, built-in `WiFiProv`). A larger app partition will likely be needed for Bluetooth + Wi-Fi + TLS.
 
