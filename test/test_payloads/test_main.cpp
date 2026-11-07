@@ -63,6 +63,16 @@ void test_command_result() {
                            parse(commandResultJson(1, CommandStatus::Unsupported, 2))["status"].as<const char*>());
 }
 
+void test_learn_status_json() {
+  JsonDocument doc = parse(learnStatusJson(1789262500000LL, LearnState::Listening, 1789262500400LL));
+  TEST_ASSERT_TRUE(doc["requestedAt"].as<int64_t>() == 1789262500000LL);
+  TEST_ASSERT_EQUAL_STRING("listening", doc["state"].as<const char*>());
+  TEST_ASSERT_TRUE(doc["updatedAt"].as<int64_t>() == 1789262500400LL);
+  TEST_ASSERT_EQUAL(3, doc.as<JsonObjectConst>().size());
+
+  TEST_ASSERT_EQUAL_STRING("timeout", parse(learnStatusJson(1, LearnState::Timeout, 2))["state"].as<const char*>());
+}
+
 void test_plausible_temperature_bounds() {
   TEST_ASSERT_TRUE(isPlausibleTemperature(22.4f));
   TEST_ASSERT_TRUE(isPlausibleTemperature(-10.0f));
@@ -80,6 +90,7 @@ int main() {
   RUN_TEST(test_remote_not_learned);
   RUN_TEST(test_remote_learned);
   RUN_TEST(test_command_result);
+  RUN_TEST(test_learn_status_json);
   RUN_TEST(test_plausible_temperature_bounds);
   return UNITY_END();
 }

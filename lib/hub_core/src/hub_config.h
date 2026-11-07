@@ -15,5 +15,8 @@ constexpr uint32_t kTelemetryIntervalMs = 60000;
 constexpr int64_t kCommandFreshnessMs = 120000;
 constexpr uint8_t kAcStateRepeatCount = 3;
 constexpr uint32_t kRepeatGapMs = 300;
+constexpr uint32_t kLearnWindowMs = 30000;
+constexpr uint16_t kNoiseMaxRawLen = 7;
+constexpr uint16_t kMinFrameRawLen = 24;
 
 }  // namespace hg

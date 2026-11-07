@@ -62,3 +62,11 @@ std::string commandResultJson(int64_t requestedAt, CommandStatus status, int64_t
   doc["handledAt"] = handledAt;
   return toJson(doc);
 }
+
+std::string learnStatusJson(int64_t requestedAt, LearnState state, int64_t updatedAt) {
+  JsonDocument doc;
+  doc["requestedAt"] = requestedAt;
+  doc["state"] = learnStateName(state);
+  doc["updatedAt"] = updatedAt;
+  return toJson(doc);
+}
