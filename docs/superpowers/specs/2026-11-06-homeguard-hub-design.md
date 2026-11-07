@@ -46,8 +46,8 @@ On later boots the hub uses its saved Wi-Fi and skips Bluetooth.
 
 ### 2. Teach remote
 
-1. The user taps **Teach remote** (in setup, and later in Settings → AC). The app first asks them to turn the AC on with its remote, then writes `learn/request`.
-2. The hub sets `learn/status.state = listening` and listens on GPIO14 for 30 s. The app shows "Point your remote at the hub and press OFF." The AC will usually turn off too, which is expected. Status light: fast blink. Like commands, a `learn/request` is only acted on if it is new and under 2 minutes old, so a leftover request never starts listening after a reboot.
+1. The user taps **Teach remote** (in setup, and later in Settings → AC). The app first asks them to turn the AC on with its remote, then writes `commands/learnRequest`.
+2. The hub sets `learn/status.state = listening` and listens on GPIO14 for 30 s. The app shows "Point your remote at the hub and press OFF." The AC will usually turn off too, which is expected. Status light: fast blink. Like commands, a `commands/learnRequest` is only acted on if it is new and under 2 minutes old, so a leftover request never starts listening after a reboot.
 3. The hub takes the first frame that is long enough to be real. It saves it to flash (survives power loss), works out its `kind` (see contract), writes `remote`, and sets `state = saved`. Too short or noisy → `rejected`. Nothing in 30 s → `timeout`. The app offers **Try again** for both.
 4. After `saved`, the app asks the user to turn the AC back on, then offers **Test it**. Test sends a normal OFF command and asks "Did your AC turn off?" No → back to step 1.
 
@@ -113,7 +113,7 @@ Wi-Fi or Firebase drops → the hub keeps retrying with backoff and keeps readin
 Built by a subagent on its own branch in `~/repos/ac-guard`, following the contract.
 
 1. **Add hub flow.** A new onboarding step and an entry in Settings → AC: scan, pick hub, choose Wi-Fi, enter password, send, wait for online, then Teach remote. It needs a Bluetooth provisioning library compatible with Expo dev builds (Espressif's iOS/Android provisioning SDKs, via an existing React Native wrapper if one works with Expo SDK 55; the builder verifies). Adds the iOS Bluetooth permission string.
-2. **Teach remote screen.** Writes `learn/request`, follows `learn/status`, has Try again, and the "Test it now?" step.
+2. **Teach remote screen.** Writes `commands/learnRequest`, follows `learn/status`, has Try again, and the "Test it now?" step.
 3. **Honest command feedback.** Reads `commands/result` and shows the table's messages. The dashboard stops implying the AC is off because a command was sent.
 4. **Power-toggle guard.** Implements the "Power-toggle remotes" rule above in the AC notification, the notification action handler, and the dashboard button.
 5. **"Remote not taught" flag.** When `remote.learned` is `false`, the dashboard and the AC notification point the user to Teach remote.

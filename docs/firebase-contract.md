@@ -20,9 +20,11 @@ devices/{deviceId}/
   remote/                         hub writes     (new)
   commands/latest                 app writes     (existing)
   commands/result                 hub writes     (new)
-  learn/request                   app writes     (new)
+  commands/learnRequest           app writes     (new)
   learn/status                    hub writes     (new)
 ```
+
+The hub holds **one** live stream, on `devices/{deviceId}/commands`, and reacts only to changes under `latest` and `learnRequest` (it ignores the echo of its own `result` writes). Each extra stream costs the ESP32 another TLS connection (~40 KB of RAM), which is why the learn request lives under `commands`.
 
 ### `telemetry` (hub → app, existing)
 
@@ -81,13 +83,13 @@ Written once per command the hub handles.
 
 `requestedAt` echoes the command it answers, so the app can match a result to its request.
 
-### `learn/request` (app → hub, new)
+### `commands/learnRequest` (app → hub, new)
 
 ```json
 { "requestedAt": 1789262500000, "requestedBy": "<uid>" }
 ```
 
-`requestedAt` is a server timestamp. Each new value starts a learn attempt.
+`requestedAt` is a server timestamp. Each new value starts a learn attempt, if it is under 2 minutes old (same freshness rule as commands).
 
 ### `learn/status` (hub → app, new)
 
