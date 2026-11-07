@@ -9,10 +9,13 @@
 
 static IRrecv irrecv(hg::kPinIrReceive, 1024, 50, true);
 static decode_results results;
+static bool enabled = false;
 
 void irLearnerBegin() { irrecv.setUnknownThreshold(12); }
 
 void irLearnerEnable(bool on) {
+  if (on == enabled) return;
+  enabled = on;
   if (on) {
     irrecv.enableIRIn();
   } else {

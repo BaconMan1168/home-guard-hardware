@@ -10,7 +10,9 @@
 #include "device_id.h"
 #include "hub_clock.h"
 #include "hub_config.h"
+#include "ir_learner.h"
 #include "ir_sender.h"
+#include "learn_session.h"
 #include "payloads.h"
 #include "secrets.h"
 #include "status_led.h"
@@ -19,6 +21,8 @@
 static StatusLed led;
 static StoredCode code;
 static int64_t lastCmdAt = 0;
+static int64_t lastLearnAt = 0;
+static LearnSession session;
 static std::string deviceId;
 static bool cloudBegun = false;
 static bool started = false;
@@ -36,8 +40,44 @@ static void onCommand(const Command& cmd) {
                 commandStatusName(d.status));
 }
 
+static void reportLearnStatus(LearnState state) {
+  cloudSet("learn/status", learnStatusJson(session.requestedAt(), state, nowMs()));
+  Serial.printf("Learn %s\n", learnStateName(state));
+}
+
 static void onLearnRequest(int64_t requestedAt) {
-  Serial.printf("Learn request at %lld (not handled yet)\n", static_cast<long long>(requestedAt));
+  if (!shouldStartLearn(requestedAt, lastLearnAt, nowMs())) return;
+
+  saveLastLearnAt(requestedAt);
+  lastLearnAt = requestedAt;
+  session.start(requestedAt, millis());
+  irLearnerEnable(true);
+  reportLearnStatus(LearnState::Listening);
+}
+
+static void finishLearn(LearnState state, StoredCode& candidate) {
+  if (state == LearnState::Saved) {
+    candidate.present = true;
+    candidate.learnedAt = nowMs();
+    if (saveCode(candidate)) {
+      code = candidate;
+      cloudSet("remote", remoteJson(code));
+    } else {
+      state = LearnState::Rejected;
+    }
+  }
+  reportLearnStatus(state);
+  irLearnerEnable(false);
+  session.reset();
+}
+
+static void learnLoop() {
+  if (session.state() != LearnState::Listening) return;
+  FrameInfo frame;
+  StoredCode candidate;
+  if (irLearnerPoll(frame, candidate)) session.onFrame(frame, millis());
+  LearnState state = session.tick(millis());
+  if (state != LearnState::Listening) finishLearn(state, candidate);
 }
 
 static void reportTemperature(bool online) {
@@ -60,9 +100,11 @@ void setup() {
   led.begin();
   led.setMode(HubMode::Connecting, millis());
   irSenderBegin();
+  irLearnerBegin();
   storeBegin();
   code = loadCode();
   lastCmdAt = loadLastCommandAt();
+  lastLearnAt = loadLastLearnAt();
   if (!sensorBegin()) Serial.println("AHT20 not found");
 
   uint8_t mac[6];
@@ -82,9 +124,12 @@ void loop() {
     cloudBegun = true;
   }
   if (cloudBegun) cloudLoop();
+  learnLoop();
 
   bool online = wifi && cloudBegun && cloudReady();
-  led.setMode(online ? HubMode::Online : HubMode::Connecting, millis());
+  HubMode mode = online ? HubMode::Online : HubMode::Connecting;
+  if (session.state() == LearnState::Listening) mode = HubMode::Learning;
+  led.setMode(mode, millis());
   led.update(millis());
 
   if (!started && online && clockSynced()) {
