@@ -18,5 +18,7 @@ constexpr uint32_t kRepeatGapMs = 300;
 constexpr uint32_t kLearnWindowMs = 30000;
 constexpr uint16_t kNoiseMaxRawLen = 7;
 constexpr uint16_t kMinFrameRawLen = 24;
+constexpr uint32_t kFactoryResetHoldMs = 10000;
+constexpr const char* kProofOfPossession = "homeguard-pop-v1";
 
 }  // namespace hg
