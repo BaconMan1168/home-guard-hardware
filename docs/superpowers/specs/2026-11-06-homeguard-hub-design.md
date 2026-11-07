@@ -70,11 +70,21 @@ Teaching again replaces the old code.
 Some remotes only have a single POWER button. Sending that code to an AC that is already off turns it **on**. These remotes are allowed, but only with a stronger signal that the AC is actually on:
 
 - Applies when `remote.kind` is `toggle` or `raw` (raw is unknown, so it is treated as a possible toggle).
-- The app offers **Turn it off** for these codes only when the room is at least 3 °C cooler than the nearby outdoor temperature the app already fetches. *(The 3 °C margin is Claude's call.)*
-- The app checks this twice: when it decides to send the notification, and again at the moment the user taps Turn it off, since conditions may have changed in between.
-- If the signal is too weak or the outdoor temperature is unavailable, the user still gets told the AC *might* be on, but without a Turn it off button. The message explains that their remote uses a power toggle, so HomeGuard won't send it unless it's sure.
+- **Built on the existing Smart check** (`ac-guard/src/services/ac-monitoring.ts`), not a fixed margin. The Smart check reaches `likely-on` when, after the delay, the room stays below the threshold and does not warm across a 15-minute window while outdoor air is warmer. Its weak spot: when outdoor air is only slightly warmer than the room (e.g. a Singapore night), an AC-off room warms too slowly to tell apart from "stable".
+- **Extra condition for toggle codes: "would an AC-off room visibly have warmed by now?"** Using the room's learned warming time constant τ (the median of `thermalTimeConstantsMinutes`, via `learnedThermalTimeConstant`), the app predicts the rise an AC-off room would show over the same 15-minute trend window: `predictedRise = (outdoor − room) × (1 − e^(−15/τ))`. Turn it off is offered only if the state is `likely-on` **and** `predictedRise ≥ 0.5 °C`. The Smart check calls a change under 0.15 °C "stable", so 0.5 °C (about 3×) means an AC-off room could not pass as stable. In effect each room gets its own required outdoor/room gap: about 2.3 °C for τ = 60 min, about 4.3 °C for τ = 120 min.
+- **No learned τ yet → no Turn it off for toggle codes** (Daniel's decision, for now). The user is told the AC might be on, without the button, and why: their remote uses a power toggle, and HomeGuard needs to learn how the room warms first. A research-based starting τ for Singapore homes may replace this later; see `docs/research/singapore-room-warming.md`.
+- The app checks the rule twice: when it decides to send the notification, and again at the moment the user taps Turn it off, since conditions may have changed in between.
 - This is enforced in the app. The hub doesn't know the outdoor temperature, and it fires whatever OFF command it receives.
 - The real fix comes in phase 2, when the power-monitoring plug can tell whether the AC is drawing power.
+
+### Learning the room's warming rate as it's used *(Claude's proposal)*
+
+Today τ is only learned when the user runs Calibration by hand. Two automatic sources are added, both feeding the existing `observeCalibration` logic (same quality checks, same 8-value history):
+
+1. **After every shut-off.** When `commands/result.status` is `sent`, the app starts a calibration-style observation from that moment, using the room and outdoor temperatures at that time. If the room then warms the way an AC-off room should, the τ estimate is saved. The app can also say "The room is warming, so the AC is likely off now", which is the closest thing to confirmation infrared allows.
+2. **After Teach remote.** The teach-and-test step ends with the AC off and the user at home, which makes it a natural calibration run. The app starts one automatically if outdoor air is at least 1 °C warmer than the room (the existing calibration requirement).
+
+Either source silently gives up, as manual calibration already does, if the room doesn't warm cleanly (for example, the user turned the AC back on).
 
 ### 4. Reporting temperature
 
