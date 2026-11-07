@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <WiFi.h>
 #include <esp_mac.h>
 
 #include <string>
@@ -8,13 +7,14 @@
 #include "code_store.h"
 #include "command_gate.h"
 #include "device_id.h"
+#include "hold_detector.h"
 #include "hub_clock.h"
 #include "hub_config.h"
 #include "ir_learner.h"
 #include "ir_sender.h"
 #include "learn_session.h"
 #include "payloads.h"
-#include "secrets.h"
+#include "provisioning.h"
 #include "status_led.h"
 #include "temp_sensor.h"
 
@@ -23,6 +23,7 @@ static StoredCode code;
 static int64_t lastCmdAt = 0;
 static int64_t lastLearnAt = 0;
 static LearnSession session;
+static HoldDetector resetHold(hg::kFactoryResetHoldMs);
 static std::string deviceId;
 static bool cloudBegun = false;
 static bool started = false;
@@ -93,10 +94,27 @@ static void reportTemperature(bool online) {
   cloudPush("temperatureReadings", readingJson(t, now));
 }
 
+static void factoryReset() {
+  Serial.println("Factory reset");
+  uint32_t startMs = millis();
+  led.setMode(HubMode::Resetting, startMs);
+  bool online = cloudBegun && cloudReady();
+  if (online) cloudSet("remote", remoteJson(StoredCode{}));
+  while (millis() - startMs < 1000) {
+    if (online) cloudLoop();
+    led.update(millis());
+    delay(1);
+  }
+  clearAll();
+  wipeWifiCredentials();
+  ESP.restart();
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("HomeGuard hub");
 
+  pinMode(hg::kPinBootButton, INPUT_PULLUP);
   led.begin();
   led.setMode(HubMode::Connecting, millis());
   irSenderBegin();
@@ -112,13 +130,15 @@ void setup() {
   deviceId = deviceIdFromMac(mac);
   Serial.printf("Device ID %s\n", deviceId.c_str());
 
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  WiFi.setAutoReconnect(true);
+  provisioningBegin(bleNameFromMac(mac));
   clockBegin();
 }
 
 void loop() {
-  bool wifi = WiFi.isConnected();
+  if (resetHold.update(digitalRead(hg::kPinBootButton) == LOW, millis())) factoryReset();
+
+  SetupState setupNow = setupState();
+  bool wifi = setupNow == SetupState::Connected;
   if (wifi && !cloudBegun) {
     cloudBegin(deviceId, {onCommand, onLearnRequest});
     cloudBegun = true;
@@ -128,6 +148,7 @@ void loop() {
 
   bool online = wifi && cloudBegun && cloudReady();
   HubMode mode = online ? HubMode::Online : HubMode::Connecting;
+  if (setupNow == SetupState::AwaitingSetup) mode = HubMode::AwaitingSetup;
   if (session.state() == LearnState::Listening) mode = HubMode::Learning;
   led.setMode(mode, millis());
   led.update(millis());
