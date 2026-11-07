@@ -1,0 +1,19 @@
+#pragma once
+
+#include <cstdint>
+
+namespace hg {
+
+constexpr uint8_t kPinIrSend = 4;
+constexpr uint8_t kPinIrReceive = 14;
+constexpr uint8_t kPinSda = 21;
+constexpr uint8_t kPinScl = 22;
+constexpr uint8_t kPinBootButton = 0;
+constexpr uint8_t kPinStatusLed = 2;
+
+constexpr uint32_t kTelemetryIntervalMs = 60000;
+constexpr int64_t kCommandFreshnessMs = 120000;
+constexpr uint8_t kAcStateRepeatCount = 3;
+constexpr uint32_t kRepeatGapMs = 300;
+
+}  // namespace hg
