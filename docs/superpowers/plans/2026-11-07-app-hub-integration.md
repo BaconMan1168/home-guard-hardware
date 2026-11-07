@@ -4,37 +4,67 @@
 
 **Goal:** Let a user set up the HomeGuard hub and teach it their AC remote from the ac-guard app alone. Turn it off must report honestly ("Command sent"), refuse power-toggle codes without a strong sign the AC is on, and learn the room's warming rate automatically. Every flow keeps working in demo mode.
 
-**Architecture:** Pure logic (hub data parsing, online/offline, setup wait, learn phases, result messages, toggle guard) lives in two dependency-free modules under `src/lib/`, tested with `node --test` the way the existing tests work. `src/services/firebase.ts` gains the new contract paths plus a mock hub. `src/services/ac-monitoring.ts` gains the notification guard and automatic calibration. A new `src/services/turn-off.ts` re-checks the guard at tap time. Bluetooth provisioning sits behind one `HubProvisioner` interface, with a native implementation (`@orbital-systems/react-native-esp-idf-provisioning`) and a mock. Shared `TeachRemoteFlow` and `AddHubFlow` components are mounted by thin onboarding and settings routes.
+**Architecture:**
+- **Pure logic** lives in three dependency-free modules under `src/lib/`, tested with `node --test` the way the existing tests run. It covers hub data parsing, building the AC snapshot from Firebase children, online/offline, the setup wait, learn phases, result messages and the toggle guard.
+- **Firebase:** `src/services/firebase.ts` stops reading `devices/{deviceId}` whole. It listens only to the contract children, and gains a mock hub.
+- **AC monitoring:** `src/services/ac-monitoring.ts` gains the notification guard and automatic calibration after a shut-off.
+- **Turn it off:** a new `src/services/turn-off.ts` re-checks the guard every time the user taps it.
+- **Bluetooth setup** sits behind one `HubProvisioner` interface. One implementation wraps `@orbital-systems/react-native-esp-idf-provisioning`; the other is a mock.
+- **Screens:** shared `TeachRemoteFlow` and `AddHubFlow` components, each mounted by a thin onboarding route and a thin settings route.
 
-**Tech Stack:** Expo SDK 55, React Native 0.83 (new architecture only), Expo Router (typed routes), NativeWind 4, Firebase JS SDK v12 Realtime Database, `expo-notifications`, `@orbital-systems/react-native-esp-idf-provisioning@0.7.0` (wraps Espressif `ESPProvision ~> 3.2` on iOS), Node 24 `node:test` + `typescript.transpileModule` for tests.
+**Tech Stack:** Expo SDK 55, React Native 0.83 (new architecture only), Expo Router (typed routes), NativeWind 4, Firebase JS SDK v12 Realtime Database, `expo-notifications`, `@orbital-systems/react-native-esp-idf-provisioning@0.7.0` (wraps Espressif `ESPProvision ~> 3.2` on iOS). Tests use Node 24 `node:test` with `typescript.transpileModule`.
 
-**Spec:** `~/repos/home-guard-hardware/docs/superpowers/specs/2026-11-06-homeguard-hub-design.md`: sections "App changes (ac-guard)", "1. First-time setup", "2. Teach remote", "Power-toggle remotes", "Learning the room's warming rate as it's used", "Testing without the hardware". **Contract:** `~/repos/home-guard-hardware/docs/firebase-contract.md`. Read both before starting.
+**Spec:** `~/repos/home-guard-hardware/docs/superpowers/specs/2026-11-06-homeguard-hub-design.md`. The relevant sections are "App changes (ac-guard)", "1. First-time setup", "2. Teach remote", "Power-toggle remotes", "Learning the room's warming rate as it's used" and "Testing without the hardware". **Contract:** `~/repos/home-guard-hardware/docs/firebase-contract.md`. Read both before starting.
 
 ## Global Constraints
 
 - Work in `~/repos/ac-guard` on a new branch `feat/hub-integration` cut from `main`. Commit after every task with a conventional commit message. **No `Co-Authored-By` trailer, no "Generated with" line.**
-- `ac-guard/AGENTS.md`: read the Expo v55 docs (https://docs.expo.dev/versions/v55.0.0/) before writing code. Use Context7 for current docs on Expo, expo-notifications, expo-router and Firebase v12.
-- Firebase paths, exactly as in the contract: `devices/{deviceId}/telemetry`, `remote`, `commands/latest`, `commands/result`, `commands/learnRequest` (app writes `{ requestedAt: serverTimestamp(), requestedBy: uid }`), `learn/status`. The app never writes `remote`, `commands/result` or `learn/status`.
-- Bluetooth name `HomeGuard-XXXXXX` (6 uppercase hex). deviceId = name lowercased (`homeguard-a1b2c3`). Proof-of-possession `homeguard-pop-v1`. Transport BLE, security 1 (`ESPSecurity.secure`).
-- Hub offline when `telemetry.lastSeenAt` is more than 3 minutes (180 000 ms) old. "Hub connected" needs `lastSeenAt` > the moment setup started, waiting up to 90 s (90 000 ms).
-- Toggle guard: applies when `remote.kind` is `toggle` or `raw`. Turn it off is allowed only if status is `likely-on` AND `(outdoor − room) × (1 − e^(−15/τ)) ≥ 0.5 °C`, with τ from `learnedThermalTimeConstant`. No learned τ: no Turn it off for those codes, with an explanation. The guard is checked when deciding to notify and again on every Turn it off tap (dashboard and notification action).
-- Copy: "Command sent", never "AC off". Result messages exactly: `sent` "Command sent", `no-code` "Teach your remote first", `unsupported` "The hub can only turn the AC off", `stale` "Hub was offline; command not sent". The feature is called **Teach remote** everywhere (never "calibrate"). Listening copy: "Point your remote at the hub and press OFF."
-- Demo mode (no Firebase env values, `getFirebaseMode() === 'mock'`) must run every new flow without hardware.
-- Modules in `src/lib/` use `import type` only, so tests can transpile them without dependencies. Tests copy the `load()` helper from `tests/stove-detection.test.cjs` lines 1–23 verbatim (it injects `require` fakes and a fixed `Date`).
-- Add hub has to work on iOS. Android must still build. The only new dependency is the provisioning library. Don't touch unrelated code, labels or styling.
-- Checks: `node --test tests/*.test.cjs`, `npm run typecheck`, `npm run lint`. After adding route files, run `npx expo start` once (stop it after Metro is ready) so `.expo/types/router.d.ts` picks up the new routes before `npm run typecheck`.
+- `ac-guard/AGENTS.md` asks you to read the Expo v55 docs (https://docs.expo.dev/versions/v55.0.0/) before writing code. Use Context7 for current docs on Expo, expo-notifications, expo-router and Firebase v12.
+- **Firebase paths**, exactly as in the contract:
+  - `devices/{deviceId}/telemetry`
+  - `remote`
+  - `commands/latest`
+  - `commands/result`
+  - `commands/learnRequest`: the app writes `{ requestedAt: serverTimestamp(), requestedBy: uid }`
+  - `learn/status`
+
+  The app never writes `remote`, `commands/result` or `learn/status`.
+- **AC reads:** the AC device is never read as the whole `devices/{deviceId}` node. The app reads only the six child paths above. Room-temperature history keeps using the existing indexed `temperatureReadings` query.
+- **Hub identity:** Bluetooth name `HomeGuard-XXXXXX` (6 uppercase hex digits). deviceId is the name lowercased, e.g. `homeguard-a1b2c3`.
+- **Provisioning:** proof-of-possession `homeguard-pop-v1`, BLE transport, security 1 (`ESPSecurity.secure`).
+- **Hub offline** when `telemetry.lastSeenAt` is more than 3 minutes (180 000 ms) old.
+- **"Hub connected":** a later snapshot shows a `telemetry.lastSeenAt` larger than the value read when setup started (`null` if none). This never compares the hub's clock with the phone's. The timeout is 90 s (90 000 ms) on the phone's own timer.
+- **Toggle guard:**
+  - It applies when `remote.kind` is `toggle` or `raw`.
+  - Turn it off is allowed only if the status is `likely-on` AND `(outdoor − room) × (1 − e^(−15/τ)) ≥ 0.5 °C`, with τ from `learnedThermalTimeConstant` (2 or more events).
+  - With no learned τ, there is no Turn it off for those codes, and the app explains why.
+  - The guard is checked when deciding to notify and again on every Turn it off tap, from the dashboard and from the notification action.
+- **Automatic calibration** has one source: a `commands/result` with status `sent`. The Teach remote Test step produces one. It reuses `observeCalibration` and requires outdoor air at least 1 °C warmer than the room.
+- **Copy:**
+  - Say "Command sent", never "AC off".
+  - Result messages, exactly:
+    - `sent`: "Command sent"
+    - `no-code`: "Teach your remote first"
+    - `unsupported`: "The hub can only turn the AC off"
+    - `stale`: "Hub was offline; command not sent"
+  - The feature is called **Teach remote** everywhere, never "calibrate".
+  - Listening copy: "Point your remote at the hub and press OFF."
+- **Demo mode** (no Firebase env values, `getFirebaseMode() === 'mock'`) must run every new flow without hardware.
+- **Testable modules:** files in `src/lib/` use `import type` only, apart from `src/lib/ac-device.ts` importing `@/lib/hub`. Tests copy the `load()` helper from `tests/stove-detection.test.cjs` lines 1–23 verbatim; it injects `require` fakes and a fixed `Date`.
+- **Platforms and dependencies:** Add hub has to work on iOS; Android must still build. The only new dependency is the provisioning library. Don't touch unrelated code, labels or styling.
+- **Checks:** `node --test tests/*.test.cjs`, `npm run typecheck` and `npm run lint`. After adding route files, run `npx expo start` once and stop it when Metro is ready. That regenerates `.expo/types/router.d.ts` with the new routes; do it before `npm run typecheck`.
 
 ## Review Focus
 
-1. **A result from an earlier attempt shown as this attempt's result.** Example: Try again after a `saved`, and the old `learn/status` still reads `saved`. The app must wait for the status that answers the new request. Pinned in Task 1 (`getLearnPhase` "previous attempt" assertions).
-2. **Malformed or unknown hub data.** Examples: a `kind` the app doesn't know, a `status` string outside the contract, string timestamps. Unknown kinds must be treated as `raw` (so the guard applies) and malformed results ignored. Pinned in Task 1 (parser test).
-3. **A hub that goes silent.** No Firebase event arrives when telemetry stops, so offline must come from the clock, not from a new snapshot. Boundary pinned in Task 1. The 15 s `now` tick recomputes it in Task 7, checked in the walkthrough.
-4. **Problems during setup.** A wrong Wi-Fi password, a 5 GHz-only network, or Bluetooth dropping mid-setup must each show a specific message, and the user can retry because the hub is still in Bluetooth mode. Pinned in Task 1 (`classifyProvisionError`), wired in Task 9.
-5. **Turn it off tapped on an old notification after conditions changed** (back home, room now warming). The toggle re-check must block it. Pinned in Task 7 (`requestTurnOff re-evaluates before deciding`).
+1. **A result from an earlier attempt shown as this attempt's result.** For example, after a `saved`, the user taps Try again and the old `learn/status` still reads `saved`. The app must wait for the status that answers the new request. Pinned in Task 1 (the "previous attempt" assertions for `getLearnPhase`).
+2. **Malformed or unknown hub data**, such as an unknown `kind`, a `status` outside the contract, or string timestamps. An unknown kind must be treated as `raw`, so the guard applies; malformed results are ignored. Pinned in Task 1 (parser test) and Task 3 (`buildAcSnapshot` with missing children).
+3. **A hub that goes silent.** When telemetry stops, no Firebase event arrives, so offline must come from the clock, not from a new snapshot. The boundary is pinned in Task 1. In Task 8, the 15 s `now` tick recomputes it, and the walkthrough checks it.
+4. **Setup problems:** wrong Wi-Fi password, a 5 GHz-only network, Bluetooth dropping mid-setup, or the phone offline when setup starts. Each must show a specific message. The user can retry because the hub stays in Bluetooth mode. Pinned in Task 1 (`classifyProvisionError`) and wired in Task 10.
+5. **Turn it off tapped on an old notification after conditions changed**, for example back home or the room now warming. The toggle re-check must block it. Pinned in Task 8 (`requestTurnOff re-evaluates before deciding`).
 
-## Known issues, not in scope
+## Not in scope
 
-- `subscribeToDevice` and `getDeviceSnapshot` read the whole `devices/{deviceId}` node, which includes `temperatureReadings` (about 1,440 new entries a day from the hub). Every telemetry update re-downloads the full history. Leave it as is. Flag it to Daniel as the first follow-up: listen to `telemetry`, `remote`, `commands` and `learn` separately.
+- The stove keeps its whole-node reads (`getStoveSnapshot`, `subscribeToStoveDevice`). Those nodes get no per-minute history from the hub, and they don't share the AC code.
 - The onboarding reminder screen's "Demo device connected" card is unchanged.
 
 ---
@@ -60,7 +90,7 @@
   // AcDeviceSnapshot gains (AC only, not BaseDeviceSnapshot):
   //   remote: HubRemote | null; commandResult: CommandResult | null;
   //   learnStatus: LearnStatus | null; learnRequestedAt: number | null;
-  // AcCalibration gains: source?: 'manual' | 'shut-off' | 'teach-remote';
+  // AcCalibration gains: source?: 'manual' | 'shut-off';
   // AcMonitoringState gains: lastCalibratedCommandAt: number | null;
   ```
 - Produces (`src/lib/hub.ts`):
@@ -74,7 +104,7 @@
   export function deviceIdFromHubName(name: string): string | null;
   export function getHubConnectionStatus(lastSeenAt: number, now: number): ConnectionStatus;
   export type SetupWaitOutcome = 'waiting' | 'connected' | 'timed-out';
-  export function getSetupWaitOutcome(input: { lastSeenAt: number | null; setupStartedAt: number; waitStartedAt: number; now: number }): SetupWaitOutcome;
+  export function getSetupWaitOutcome(input: { lastSeenAtBefore: number | null; lastSeenAt: number | null; waitStartedAt: number; now: number }): SetupWaitOutcome;
   export function parseHubRemote(value: unknown): HubRemote | null;
   export function parseCommandResult(value: unknown): CommandResult | null;
   export function parseLearnStatus(value: unknown): LearnStatus | null;
@@ -95,7 +125,7 @@
 cd ~/repos/ac-guard && git checkout main && git pull --ff-only && git checkout -b feat/hub-integration
 ```
 
-- [ ] **Step 2: Write the failing tests** in `tests/hub.test.cjs` (`const hub = load('src/lib/hub.ts');`, `NOW = 1_800_000_000_000`, `MINUTE = 60_000`)
+- [ ] **Step 2: Write the failing tests** in `tests/hub.test.cjs`, with `const hub = load('src/lib/hub.ts');`, `NOW = 1_800_000_000_000` and `MINUTE = 60_000`.
 
 ```js
 test('deviceIdFromHubName lowercases valid hub names and rejects others', () => {
@@ -111,16 +141,20 @@ test('hub is offline once lastSeenAt is more than 3 minutes old', () => {
   assert.equal(hub.getHubConnectionStatus(NOW + 30_000, NOW), 'online'); // hub clock slightly ahead
 });
 
-test('setup waits for a lastSeenAt newer than setup start, up to 90 s', () => {
+test('setup is connected only when lastSeenAt moves past the value seen at setup start', () => {
   const start = NOW;
-  const wait = (lastSeenAt, now, waitStartedAt = start) => hub.getSetupWaitOutcome({ lastSeenAt, setupStartedAt: start, waitStartedAt, now });
-  assert.equal(wait(start, start + 5_000), 'waiting');
-  assert.equal(wait(start - 3_600_000, start + 5_000), 'waiting'); // re-setup hub's old lastSeenAt
-  assert.equal(wait(start + 1, start + 5_000), 'connected');
-  assert.equal(wait(null, start + 90_000), 'waiting');
-  assert.equal(wait(null, start + 90_001), 'timed-out');
-  assert.equal(wait(start + 1, start + 200_000), 'connected');
-  assert.equal(wait(null, start + 120_000, start + 100_000), 'waiting'); // "Keep waiting"
+  const wait = (lastSeenAtBefore, lastSeenAt, now = start + 5_000, waitStartedAt = start) =>
+    hub.getSetupWaitOutcome({ lastSeenAtBefore, lastSeenAt, waitStartedAt, now });
+  assert.equal(wait(1_000, 1_000), 'waiting');    // re-setup hub, same old value
+  assert.equal(wait(1_000, 500), 'waiting');      // smaller is not progress
+  assert.equal(wait(1_000, 2_000), 'connected');  // hub clock unrelated to phone clock
+  assert.equal(wait(null, 2_000), 'connected');   // brand-new hub
+  assert.equal(wait(null, null), 'waiting');
+  assert.equal(wait(null, 0), 'waiting');
+  assert.equal(wait(null, null, start + 90_000), 'waiting');
+  assert.equal(wait(null, null, start + 90_001), 'timed-out');
+  assert.equal(wait(1_000, 2_000, start + 200_000), 'connected');
+  assert.equal(wait(null, null, start + 120_000, start + 100_000), 'waiting'); // "Keep waiting"
 });
 
 test('hub data parsers ignore malformed values and treat unknown kinds as raw', () => {
@@ -183,33 +217,43 @@ Expected: FAIL (`ENOENT` on `src/lib/hub.ts`).
 
 - [ ] **Step 4: Add the types and implement `src/lib/hub.ts`**
 
-Rules the tests don't fully fix:
-- `deviceIdFromHubName`: `/^HomeGuard-[0-9A-F]{6}$/`, then lowercase.
-- `getHubConnectionStatus`: online iff `lastSeenAt > 0 && now - lastSeenAt <= HUB_OFFLINE_AFTER_MS`.
-- `getSetupWaitOutcome`: `connected` if `lastSeenAt !== null && lastSeenAt > setupStartedAt` (checked first). Otherwise `timed-out` if `now - waitStartedAt > HUB_SETUP_WAIT_MS`, else `waiting`.
-- Parsers need finite numbers for every timestamp field (`learnedAt` may be missing, which gives `null`). `parseHubRemote` with `learned !== true` returns the all-null shape.
-- `getLearnPhase`: a status counts only if `currentRequest !== null && currentRequest !== requestBefore && status.requestedAt === currentRequest`. Final states win at any time. A matched `listening` turns into `no-response` after `LEARN_LISTEN_TIMEOUT_MS`. With no matched status it is `waiting`, then `no-response` after `LEARN_ACK_TIMEOUT_MS` (both measured from `attemptStartedAt`).
-- `classifyProvisionError`: read `code` and `message` from an object error. `/authentication error|AUTH_FAILED/i` gives wrong-password, `/network not found|NETWORK_NOT_FOUND/i` gives network-not-found, and `code === 'E_DEVICE_DISCONNECTED'` or `/disconnected/i` gives disconnected.
-- Copy:
-  - `LEARN_PHASE_MESSAGES`:
-    - waiting: "Waiting for the hub…"
-    - listening: as tested
-    - saved: "Remote saved."
-    - timeout: "We didn't hear your remote. Try again."
-    - rejected: "The signal was too short or unclear. Try again."
-    - no-response: "The hub didn't answer. Check it's plugged in and online, then try again."
-  - `PROVISION_FAILURE_MESSAGES`:
-    - wrong-password: "That Wi-Fi password didn't work. Check it and try again."
-    - network-not-found: "The hub couldn't find that network. It only works with 2.4 GHz Wi-Fi."
-    - disconnected: "Lost the Bluetooth connection to the hub. Move closer and try again."
-    - unknown: "Setup didn't finish. Try again."
+These rules are not fully fixed by the tests:
+- `deviceIdFromHubName`: match `/^HomeGuard-[0-9A-F]{6}$/`, then lowercase.
+- `getHubConnectionStatus`: online if and only if `lastSeenAt > 0 && now - lastSeenAt <= HUB_OFFLINE_AFTER_MS`.
+- `getSetupWaitOutcome`:
+  - Check `connected` first: `lastSeenAt !== null && lastSeenAt > 0 && (lastSeenAtBefore === null || lastSeenAt > lastSeenAtBefore)`.
+  - Otherwise `timed-out` if `now - waitStartedAt > HUB_SETUP_WAIT_MS`, else `waiting`.
+  - `now` and `waitStartedAt` are both phone-clock values.
+- Parsers: every timestamp field must be a finite number. `learnedAt` may be missing, which gives `null`. For `parseHubRemote`, `learned !== true` returns the all-null shape.
+- `getLearnPhase`:
+  - A status counts only if `currentRequest !== null && currentRequest !== requestBefore && status.requestedAt === currentRequest`.
+  - Final states win at any time.
+  - A matched `listening` becomes `no-response` after `LEARN_LISTEN_TIMEOUT_MS`.
+  - With no matched status, the phase is `waiting`, then `no-response` after `LEARN_ACK_TIMEOUT_MS`.
+  - Both timeouts are measured from `attemptStartedAt`.
+- `classifyProvisionError`: read `code` and `message` from an object error.
+  - `/authentication error|AUTH_FAILED/i` → `wrong-password`
+  - `/network not found|NETWORK_NOT_FOUND/i` → `network-not-found`
+  - `code === 'E_DEVICE_DISCONNECTED'` or `/disconnected/i` → `disconnected`
+- Copy for `LEARN_PHASE_MESSAGES`:
+  - waiting: "Waiting for the hub…"
+  - listening: as in the test above
+  - saved: "Remote saved."
+  - timeout: "We didn't hear your remote. Try again."
+  - rejected: "The signal was too short or unclear. Try again."
+  - no-response: "The hub didn't answer. Check it's plugged in and online, then try again."
+- Copy for `PROVISION_FAILURE_MESSAGES`:
+  - wrong-password: "That Wi-Fi password didn't work. Check it and try again."
+  - network-not-found: "The hub couldn't find that network. It only works with 2.4 GHz Wi-Fi."
+  - disconnected: "Lost the Bluetooth connection to the hub. Move closer and try again."
+  - unknown: "Setup didn't finish. Try again."
 
-Add the new snapshot and state fields to the types now. `npm run typecheck` will fail where `AcDeviceSnapshot` literals lack them (`src/constants/demo.ts`, `src/services/firebase.ts`). Task 3 fixes those, so only `node --test` gates this task.
+Add the new snapshot and state fields to the types now. Until Task 3, `npm run typecheck` fails where literals lack them; that's expected. Only `node --test` gates this task.
 
 - [ ] **Step 5: Run to verify pass**
 
 Run: `node --test tests/*.test.cjs`
-Expected: all tests pass, including the existing 21.
+Expected: everything passes, including the existing 21 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -240,11 +284,13 @@ git commit -m "feat(hub): add hub contract types and pure hub logic"
   export type TurnOffInput = { remote: HubRemote | null; status: AcStatus; outdoorCelsius: number | null; roomCelsius: number; tauMinutes: number | null };
   export const TEACH_REMOTE_MESSAGE: string;
   export const TURN_OFF_BLOCKED_MESSAGES: Record<TurnOffBlockedReason, string>;
+  export const TOGGLE_LEARNING_HINT: string;
   export function predictedOffRoomRise(outdoorCelsius: number, roomCelsius: number, tauMinutes: number): number;
   export function getTurnOffAvailability(input: TurnOffInput): TurnOffAvailability;
+  export function needsWarmingRateHint(remote: HubRemote | null, tauMinutes: number | null): boolean;
   ```
 
-- [ ] **Step 1: Write the failing tests** (`const guard = load('src/lib/turn-off-guard.ts');`)
+- [ ] **Step 1: Write the failing tests**, with `const guard = load('src/lib/turn-off-guard.ts');`.
 
 ```js
 const toggle = { learned: true, learnedAt: 1, kind: 'toggle', protocol: 'NEC' };
@@ -288,6 +334,14 @@ test('missing or untaught remotes point to Teach remote', () => {
   assert.deepEqual(check({ remote: null }), teach);
   assert.deepEqual(check({ remote: { learned: false, learnedAt: null, kind: null, protocol: null } }), teach);
 });
+test('toggle and raw remotes without a learned tau get the warming-rate hint', () => {
+  assert.equal(guard.needsWarmingRateHint(toggle, null), true);
+  assert.equal(guard.needsWarmingRateHint({ ...toggle, kind: 'raw' }, NaN), true);
+  assert.equal(guard.needsWarmingRateHint(toggle, 60), false);
+  assert.equal(guard.needsWarmingRateHint({ ...toggle, kind: 'ac-state' }, null), false);
+  assert.equal(guard.needsWarmingRateHint({ learned: false, learnedAt: null, kind: null, protocol: null }, null), false);
+  assert.equal(guard.needsWarmingRateHint(null, null), false);
+});
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -297,15 +351,23 @@ Expected: FAIL (module missing).
 
 - [ ] **Step 3: Implement `src/lib/turn-off-guard.ts`**
 
-Check order: teach-remote (remote null or not learned), then `ac-state` is available, then not-likely-on, then no-learned-tau (τ not finite or ≤ 0), then missing-readings, then gap-too-small (`predictedOffRoomRise < 0.5`). The rise is `(outdoor − room) × (1 − Math.exp(−15 / τ))`.
-
-Copy:
-- `TEACH_REMOTE_MESSAGE`: "Teach your remote first so the hub can turn the AC off."
-- `TURN_OFF_BLOCKED_MESSAGES`:
-  - not-likely-on: "Your remote uses a power button, so the hub only sends it when the AC is likely on. Right now that isn't clear."
-  - no-learned-tau: "Your remote uses a power button, so the hub won't send it until Home Guard has learned how your room warms. Please turn the AC off by hand this time."
-  - missing-readings: "Your remote uses a power button, so the hub needs fresh room and outdoor readings before sending it."
-  - gap-too-small: "Your remote uses a power button. Outdoor air is too close to room temperature to be sure the AC is on, so the hub won't send it."
+- `getTurnOffAvailability` checks in this order:
+  1. teach-remote: remote is null or not learned
+  2. available: kind is `ac-state`
+  3. not-likely-on
+  4. no-learned-tau: τ not finite, or ≤ 0
+  5. missing-readings
+  6. gap-too-small: `predictedOffRoomRise < 0.5`
+- `predictedOffRoomRise` = `(outdoor − room) × (1 − Math.exp(−15 / τ))`.
+- `needsWarmingRateHint` = remote learned, and kind is `toggle` or `raw`, and τ not finite or ≤ 0. It needs no new math.
+- Copy:
+  - `TEACH_REMOTE_MESSAGE`: "Teach your remote first so the hub can turn the AC off."
+  - `TOGGLE_LEARNING_HINT`: "Your remote uses a power button, so Turn it off unlocks once Home Guard has learned how your room warms. Switch the AC off and run Calibration to teach it. It needs two good runs."
+  - `TURN_OFF_BLOCKED_MESSAGES`:
+    - not-likely-on: "Your remote uses a power button, so the hub only sends it when the AC is likely on. Right now that isn't clear."
+    - no-learned-tau: "Your remote uses a power button, so the hub won't send it until Home Guard has learned how your room warms. Please turn the AC off by hand this time."
+    - missing-readings: "Your remote uses a power button, so the hub needs fresh room and outdoor readings before sending it."
+    - gap-too-small: "Your remote uses a power button. Outdoor air is too close to room temperature to be sure the AC is on, so the hub won't send it."
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -321,57 +383,173 @@ git commit -m "feat(ac): add power-toggle turn-off guard"
 
 ---
 
-### Task 3: Firebase contract paths and mock hub
+### Task 3: Read the AC from its contract children only
+
+Today `subscribeToDevice` and `getDeviceSnapshot` read all of `devices/{deviceId}`, including `temperatureReadings`. Once the hub pushes a reading every minute, every update would re-download the whole history. This task fixes that before any hub writes data.
+
+**Decision on legacy fields:** `parseAcSnapshot` currently also reads top-level fields:
+- `temperature`
+- `temperatureCelsius`
+- `lastSeenAt`
+- `powerState`
+- `powerStateUpdatedAt`
+- `connectionStatus`
+- `connected`
+- `lastCommand`
+
+These are dropped. Only `docs/RUN.md` used that flat layout, and it already documents the nested `telemetry` / `commands/latest` layout. No device writes the flat layout. `telemetry.powerState` and `telemetry.powerStateUpdatedAt` are still read, because they are optional in RUN.md. Task 11 records this in RUN.md.
 
 **Files:**
-- Modify: `src/services/firebase.ts`
-- Modify: `src/constants/demo.ts`
+- Create: `src/lib/ac-device.ts`
+- Modify: `src/services/firebase.ts`: delete `parseAcSnapshot`, move `parseCommand` into `src/lib/ac-device.ts` and import it back for the stove parser, then rewrite the live branches of `getDeviceSnapshot` and `subscribeToDevice` and add `requestRemoteLearning`.
+- Modify: `src/constants/demo.ts`, `src/services/ac-monitoring.ts` (`emptyAcMonitoringState`)
+- Test: `tests/ac-device.test.cjs`
 
 **Interfaces:**
 - Consumes: Task 1 parsers and `getHubConnectionStatus`.
-- Produces (`src/services/firebase.ts`):
+- Produces:
   ```ts
+  // src/lib/ac-device.ts
+  export type AcDeviceChildPath = 'telemetry' | 'remote' | 'commands/latest' | 'commands/result' | 'commands/learnRequest' | 'learn/status';
+  export const AC_DEVICE_CHILD_PATHS: readonly AcDeviceChildPath[];
+  export type AcDeviceChildren = Partial<Record<AcDeviceChildPath, unknown>>;
+  export function parseCommand(value: unknown): DeviceCommand | null;   // moved unchanged from firebase.ts
+  export function buildAcSnapshot(deviceId: string, children: AcDeviceChildren, now: number): AcDeviceSnapshot;
+  // src/services/firebase.ts
   export async function requestRemoteLearning(deviceId: string): Promise<void>;
-  export function setMockRemote(kind: RemoteKind | null): void;            // null = not taught
-  export function setMockLearnOutcome(outcome: Exclude<LearnState, 'listening'>): void;
-  export function setMockHubOnline(online: boolean): void;
-  export function markMockHubProvisioned(deviceId: string): void;
-  // unchanged signatures: sendDeviceCommand, sendTurnOffCommand, getDeviceSnapshot, subscribeToDevice
   ```
 
-- [ ] **Step 1: Live parsing.** Extend `FirebaseDeviceValue` with `remote?: unknown`, `commands?: { latest?: Partial<DeviceCommand>; result?: unknown; learnRequest?: { requestedAt?: unknown } }`, `learn?: { status?: unknown }`. In `parseAcSnapshot` set:
-  - `remote: parseHubRemote(value?.remote)`
-  - `commandResult: parseCommandResult(value?.commands?.result)`
-  - `learnStatus: parseLearnStatus(value?.learn?.status)`
-  - `learnRequestedAt`: finite number or `null`
-  - `connectionStatus`: `'offline'` when `!value || value.connectionStatus === 'offline' || value.connected === false`, else `getHubConnectionStatus(lastSeenAtParsed, Date.now())`
+- [ ] **Step 1: Write the failing tests**, with `const acDevice = load('src/lib/ac-device.ts', { '@/lib/hub': load('src/lib/hub.ts') });`.
 
-- [ ] **Step 2: Live learn request.** `requestRemoteLearning(deviceId)` does `set(ref(db, \`devices/${deviceId}/commands/learnRequest\`), { requestedAt: serverTimestamp(), requestedBy: uid })`. Don't read the value back: the screen matches `learn/status.requestedAt` against the snapshot's `learnRequestedAt`.
+```js
+const build = (children) => acDevice.buildAcSnapshot('homeguard-a1b2c3', children, NOW);
+test('AC reads are limited to the contract children', () => {
+  assert.deepEqual([...acDevice.AC_DEVICE_CHILD_PATHS], ['telemetry', 'remote', 'commands/latest', 'commands/result', 'commands/learnRequest', 'learn/status']);
+});
+test('snapshot is built from the contract children', () => {
+  const s = build({
+    telemetry: { temperatureCelsius: 22.4, lastSeenAt: NOW - MINUTE },
+    remote: { learned: true, learnedAt: 5, kind: 'toggle', protocol: 'NEC' },
+    'commands/latest': { value: 'OFF', requestedAt: 100, requestedBy: 'uid', source: 'notification' },
+    'commands/result': { requestedAt: 100, status: 'sent', handledAt: 101 },
+    'commands/learnRequest': { requestedAt: 90, requestedBy: 'uid' },
+    'learn/status': { requestedAt: 90, state: 'saved', updatedAt: 95 },
+  });
+  assert.equal(s.deviceType, 'ac');
+  assert.equal(s.roomTemperatureCelsius, 22.4);
+  assert.equal(s.lastSeenAt, NOW - MINUTE);
+  assert.equal(s.connectionStatus, 'online');
+  assert.equal(s.powerState, null);
+  assert.deepEqual(s.lastCommand, { value: 'OFF', requestedAt: 100, source: 'notification' });
+  assert.equal(s.commandResult.status, 'sent');
+  assert.equal(s.learnRequestedAt, 90);
+  assert.equal(s.learnStatus.state, 'saved');
+  assert.equal(s.remote.kind, 'toggle');
+});
+test('missing children give an offline, empty snapshot', () => {
+  const s = build({});
+  assert.equal(s.connectionStatus, 'offline');
+  assert.ok(Number.isNaN(s.roomTemperatureCelsius));
+  assert.equal(s.lastSeenAt, 0);
+  for (const key of ['lastCommand', 'remote', 'commandResult', 'learnStatus', 'learnRequestedAt']) assert.equal(s[key], null);
+});
+test('stale telemetry is offline and optional powerState is still read', () => {
+  const s = build({ telemetry: { temperatureCelsius: 22, lastSeenAt: NOW - 3 * MINUTE - 1, powerState: 'ON', powerStateUpdatedAt: NOW - MINUTE } });
+  assert.equal(s.connectionStatus, 'offline');
+  assert.equal(s.powerState, 'ON');
+  assert.equal(s.powerStateUpdatedAt, NOW - MINUTE);
+});
+```
 
-- [ ] **Step 3: Mock hub.** Module constants: `MOCK_RESULT_DELAY_MS = 800`, `MOCK_LISTEN_DELAY_MS = 600`, `MOCK_LEARN_DELAY_MS = 4_000`, `MOCK_HUB_BOOT_DELAY_MS = 3_000`. Mock state: `mockLearnOutcome = 'saved'`, `mockTeachKind: RemoteKind = 'ac-state'`. Every change notifies `mockAcListeners`, as `setMockTemperature` already does.
-  - `sendDeviceCommand` (mock branch): **stop setting `powerState`/`powerStateUpdatedAt`**, since a command never proves the AC is off. Set `lastCommand`. If the mock hub is online, after `MOCK_RESULT_DELAY_MS` set `commandResult = { requestedAt: command.requestedAt, status, handledAt: Date.now() }`. `status` is `'unsupported'` for `ON`, `'no-code'` if `remote?.learned !== true`, else `'sent'`. If the mock hub is offline, write no result.
-  - `requestRemoteLearning` (mock): `learnRequestedAt = Date.now()`. After `MOCK_LISTEN_DELAY_MS`, set `learnStatus` to `listening`. After `MOCK_LEARN_DELAY_MS`, set it to `mockLearnOutcome`. On `saved`, also set `remote = { learned: true, learnedAt: Date.now(), kind: mockTeachKind, protocol: mockTeachKind === 'ac-state' ? 'DAIKIN' : 'UNKNOWN' }`.
-  - `setMockRemote(kind)`: `null` sets `{ learned: false, learnedAt: null, kind: null, protocol: null }`. Otherwise set a learned remote of that kind and remember `mockTeachKind = kind`.
-  - `setMockHubOnline(online)`: sets `connectionStatus` and `lastSeenAt = online ? Date.now() : Date.now() - 4 * 60_000`.
-  - `markMockHubProvisioned(deviceId)`: after `MOCK_HUB_BOOT_DELAY_MS`, sets `deviceId`, `lastSeenAt = Date.now()`, `connectionStatus = 'online'` and an untaught remote.
+- [ ] **Step 2: Run to verify failure**
 
-- [ ] **Step 4: Demo constants.** In `DEMO_AC_SNAPSHOT` add `remote: { learned: true, learnedAt: Date.now() - 7 * 24 * 60 * 60_000, kind: 'ac-state', protocol: 'DAIKIN' }`, `commandResult: null`, `learnStatus: null`, `learnRequestedAt: null`. Set `lastCommand: null`: the old demo `ON` command has no result and would show "Waiting for the hub". In `emptyAcMonitoringState()` (`src/services/ac-monitoring.ts`) add `lastCalibratedCommandAt: null`.
+Run: `node --test tests/ac-device.test.cjs`
+Expected: FAIL (module missing).
 
-- [ ] **Step 5: Verify**
+- [ ] **Step 3: Implement.**
+  - **`buildAcSnapshot`:**
+    - Reads `telemetry.temperatureCelsius`. A missing or non-finite value gives `NaN`.
+    - `lastSeenAt`: finite, or `0`.
+    - `powerState`: `'ON' | 'OFF' | null`.
+    - `powerStateUpdatedAt`: positive, or `null`.
+    - `connectionStatus`: `getHubConnectionStatus(lastSeenAt, now)`.
+    - `lastCommand`: `parseCommand(children['commands/latest'])`.
+    - Parsers for the rest. `learnRequestedAt` must be finite, or `null`.
+  - **Live `getDeviceSnapshot`:** run `Promise.all` over `AC_DEVICE_CHILD_PATHS`, calling `get(ref(db, \`devices/${deviceId}/${path}\`))` for each, then `buildAcSnapshot(deviceId, children, Date.now())`.
+  - **Live `subscribeToDevice`:** one `onValue` per child path, each storing its value into a shared `children` object.
+    - Emit `buildAcSnapshot(...)` only once all six paths have delivered their first value. That avoids a flash of "offline" or "Teach remote" from partial data. After that, emit on every change.
+    - Keep the existing `cancelled` handling.
+    - Unsubscribe all six on cleanup.
+  - **`getRoomTemperatureReadings`:** unchanged.
+  - **Live `requestRemoteLearning(deviceId)`:** `set(ref(db, \`devices/${deviceId}/commands/learnRequest\`), { requestedAt: serverTimestamp(), requestedBy: uid })`. Don't read the value back: screens match `learn/status.requestedAt` against the snapshot's `learnRequestedAt`.
+  - **Mock `requestRemoteLearning`:** a no-op until Task 4.
+  - **`DEMO_AC_SNAPSHOT`:**
+    - Add `remote: { learned: true, learnedAt: Date.now() - 7 * 24 * 60 * 60_000, kind: 'ac-state', protocol: 'DAIKIN' }`, `commandResult: null`, `learnStatus: null` and `learnRequestedAt: null`.
+    - Set `lastCommand: null`. The old demo `ON` command has no result and would show "Waiting for the hub".
+  - **`emptyAcMonitoringState()`:** add `lastCalibratedCommandAt: null`.
 
-Run: `npm run typecheck && npm run lint && node --test tests/*.test.cjs`
-Expected: no errors, all tests pass.
+- [ ] **Step 4: Verify**
 
-- [ ] **Step 6: Commit**
+Run: `node --test tests/*.test.cjs && npm run typecheck && npm run lint`
+Expected: everything passes, and `grep -n "\`devices/\${deviceId}\`)" src/services/firebase.ts` matches only the two stove functions.
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/services/firebase.ts src/constants/demo.ts src/services/ac-monitoring.ts
-git commit -m "feat(firebase): read hub remote, results and learn status; add mock hub"
+git add src/lib/ac-device.ts src/services/firebase.ts src/constants/demo.ts src/services/ac-monitoring.ts tests/ac-device.test.cjs
+git commit -m "perf(firebase): read the AC from its contract children instead of the whole device node"
 ```
 
 ---
 
-### Task 4: Guard the AC notification
+### Task 4: Mock hub
+
+**Files:**
+- Modify: `src/services/firebase.ts` (mock branches only)
+
+**Interfaces:**
+- Produces:
+  ```ts
+  export function setMockRemote(kind: RemoteKind | null): void;            // null = not taught
+  export function setMockLearnOutcome(outcome: Exclude<LearnState, 'listening'>): void;
+  export function setMockHubOnline(online: boolean): void;
+  export function markMockHubProvisioned(deviceId: string): void;
+  ```
+
+- [ ] **Step 1: Implement.**
+  - **Constants:** `MOCK_RESULT_DELAY_MS = 800`, `MOCK_LISTEN_DELAY_MS = 600`, `MOCK_LEARN_DELAY_MS = 4_000`, `MOCK_HUB_BOOT_DELAY_MS = 3_000`.
+  - **Mock state:** `mockLearnOutcome = 'saved'`, `mockTeachKind: RemoteKind = 'ac-state'`.
+  - Every change notifies `mockAcListeners`, the way `setMockTemperature` does.
+  - **`sendDeviceCommand` (mock branch):**
+    - **Stop setting `powerState` and `powerStateUpdatedAt`.** A command never proves the AC is off.
+    - Set `lastCommand`.
+    - If the mock hub is online, after `MOCK_RESULT_DELAY_MS` set `commandResult = { requestedAt: command.requestedAt, status, handledAt: Date.now() }`.
+    - `status` is `'unsupported'` for `ON`, `'no-code'` if `remote?.learned !== true`, otherwise `'sent'`.
+    - If the mock hub is offline, write no result.
+  - **`requestRemoteLearning` (mock):**
+    - Set `learnRequestedAt = Date.now()`.
+    - After `MOCK_LISTEN_DELAY_MS`, set `learnStatus` to `listening`.
+    - After `MOCK_LEARN_DELAY_MS`, set it to `mockLearnOutcome`.
+    - On `saved`, also set `remote = { learned: true, learnedAt: Date.now(), kind: mockTeachKind, protocol: mockTeachKind === 'ac-state' ? 'DAIKIN' : 'UNKNOWN' }`.
+  - **`setMockRemote(kind)`:** `null` sets the untaught shape. Any other kind sets a learned remote of that kind and stores `mockTeachKind = kind`.
+  - **`setMockHubOnline(online)`:** sets `connectionStatus`, and sets `lastSeenAt` to `Date.now()` when online or `Date.now() - 4 * 60_000` when offline.
+  - **`markMockHubProvisioned(deviceId)`:** after `MOCK_HUB_BOOT_DELAY_MS`, set `deviceId`, `lastSeenAt = Date.now()`, `connectionStatus = 'online'` and an untaught remote.
+
+- [ ] **Step 2: Verify**
+
+Run: `npm run typecheck && npm run lint && node --test tests/*.test.cjs`
+Expected: no errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/services/firebase.ts
+git commit -m "feat(firebase): add mock hub for results, Teach remote and setup"
+```
+
+---
+
+### Task 5: Guard the AC notification
 
 **Files:**
 - Modify: `src/services/ac-monitoring.ts:287-295` (the `likely-on` notification block)
@@ -379,11 +557,13 @@ git commit -m "feat(firebase): read hub remote, results and learn status; add mo
 - Test: `tests/ac-monitoring-hub.test.cjs`
 
 **Interfaces:**
-- Consumes: `getTurnOffAvailability`, `TurnOffAvailability` (Task 2); snapshot `remote` (Task 3).
-- Produces: `ScheduleAcReminderOptions` gains `turnOff?: TurnOffAvailability` (default `{ state: 'available' }`). `sendAcReminderNow` passes it through.
+- Consumes: `getTurnOffAvailability`, `TurnOffAvailability` (Task 2).
+- Produces: `ScheduleAcReminderOptions` gains `turnOff?: TurnOffAvailability`, defaulting to `{ state: 'available' }`. `sendAcReminderNow` passes it through.
 
-- [ ] **Step 1: Write the failing tests.** Fixture `monitoring({ remote, tau, outdoorCelsius, state, settingsPatch, snapshotPatch })` loads `src/services/ac-monitoring.ts` with these fakes:
-  - `@react-native-async-storage/async-storage`: an in-memory `{ getItem, setItem }` seeded under `'home_guard.ac_monitoring.v1'`.
+- [ ] **Step 1: Write the failing tests.**
+
+  The fixture `monitoring({ remote, tau, outdoorCelsius, departure = true, calibration, stateReadings, settingsPatch, snapshotPatch })` loads `src/services/ac-monitoring.ts` with these fakes:
+  - `@react-native-async-storage/async-storage`: in-memory `{ getItem, setItem }`, seeded under `'home_guard.ac_monitoring.v1'`.
   - `@/services/firebase`: `{ getDeviceSnapshot, getRoomTemperatureReadings: async () => [] }`.
   - `@/services/notifications`: `{ cancelAcReminders: async () => {}, sendAcReminderNow: async (o) => { reminders.push(o); return 'id'; } }`.
   - `@/services/outdoor-temperature`: `{ getNearbyOutdoorTemperature: async () => outdoor }`.
@@ -391,10 +571,11 @@ git commit -m "feat(firebase): read hub remote, results and learn status; add mo
   - `@/lib/turn-off-guard`: `load('src/lib/turn-off-guard.ts')`.
 
   Defaults:
-  - settings: `{ ...DEFAULT_SETTINGS, setupComplete: true, acDeviceId: 'homeguard-a1b2c3', phoneDepartedAt: NOW - 25 * MINUTE }`
-  - snapshot: room 22, `lastSeenAt: NOW - MINUTE`, `connectionStatus: 'online'`, `powerState: 'ON'`, `powerStateUpdatedAt: NOW - MINUTE` (fresh power ON is the shortest path to `likely-on`)
-  - stored state: a departure at `NOW - 25 * MINUTE` (`alertSent: false`, `temperatureAtDeparture: 22`, threshold 26), `thermalDeviceId` set, `thermalTimeConstantsMinutes: tau`
-  - outdoor: `{ temperatureCelsius: outdoorCelsius ?? 30, timestamp: NOW - 5 * MINUTE, stationName: 'Test' }`
+  - **Settings:** `{ ...DEFAULT_SETTINGS, setupComplete: true, acDeviceId: 'homeguard-a1b2c3', phoneDepartedAt: NOW - 25 * MINUTE }`.
+  - **Snapshot:** room 22, `lastSeenAt: NOW - MINUTE`, `connectionStatus: 'online'`, `powerState: 'ON'` with `powerStateUpdatedAt: NOW - MINUTE`. A fresh power ON is the shortest path to `likely-on`.
+  - **Stored state:** a departure at `NOW - 25 * MINUTE` with `alertSent: false`, `temperatureAtDeparture: 22` and threshold 26. `thermalDeviceId` is set and `thermalTimeConstantsMinutes: tau`.
+  - **Outdoor:** `{ temperatureCelsius: outdoorCelsius ?? 30, timestamp: NOW - 5 * MINUTE, stationName: 'Test' }`.
+  - **Helpers:** `m.snapshot`, `m.settings`, `m.setOutdoor(c)`, `stateReadings: n` (n readings one minute apart before `NOW`), and `calibration` (a partial object, completed with `deviceId`, `temperatureAtStart: 22` and `outdoorAtStart`).
 
 ```js
 const toggle = { learned: true, learnedAt: 1, kind: 'toggle', protocol: 'NEC' };
@@ -402,7 +583,6 @@ test('toggle remote without a learned warming rate notifies without Turn it off'
   const m = monitoring({ remote: toggle, tau: [] });
   await m.evaluateAcMonitoring();
   assert.equal(m.reminders.length, 1);
-  assert.equal(m.reminders[0].turnOff.state, 'blocked');
   assert.equal(m.reminders[0].turnOff.reason, 'no-learned-tau');
 });
 test('toggle remote with learned tau and a clear gap keeps Turn it off', async () => {
@@ -432,9 +612,12 @@ test('untaught remote points the notification to Teach remote', async () => {
 Run: `node --test tests/ac-monitoring-hub.test.cjs`
 Expected: FAIL (`turnOff` undefined).
 
-- [ ] **Step 3: Implement.** In the notification block, compute `getTurnOffAvailability({ remote: snapshot.remote, status: state.status, outdoorCelsius: outdoor?.temperatureCelsius ?? null, roomCelsius: snapshot.roomTemperatureCelsius, tauMinutes: learnedThermalTimeConstant(state) })` and pass it as `turnOff` to `sendAcReminderNow`.
-
-  In `scheduleAcReminder`, when `turnOff.state !== 'available'`, leave out `categoryIdentifier` (so the notification has no Turn It Off / Keep It On buttons) and append `' ' + turnOff.message` to the existing body. Keep the titles and the `data` payload, so `cancelAcReminders` still finds it.
+- [ ] **Step 3: Implement.**
+  - In the notification block, compute `getTurnOffAvailability({ remote: snapshot.remote, status: state.status, outdoorCelsius: outdoor?.temperatureCelsius ?? null, roomCelsius: snapshot.roomTemperatureCelsius, tauMinutes: learnedThermalTimeConstant(state) })` and pass it as `turnOff` to `sendAcReminderNow`.
+  - In `scheduleAcReminder`, when `turnOff.state !== 'available'`:
+    - Leave out `categoryIdentifier`, so the notification has no Turn It Off / Keep It On buttons.
+    - Append `' ' + turnOff.message` to the existing body.
+    - Keep the titles and the `data` payload, so `cancelAcReminders` still finds the notification.
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -450,75 +633,75 @@ git commit -m "feat(ac): apply power-toggle guard to the AC notification"
 
 ---
 
-### Task 5: Automatic calibration after shut-off and Teach remote
+### Task 6: Automatic calibration after a shut-off
+
+There is one source: a matching `commands/result` with status `sent`. The Teach remote Test step creates one, so it covers the spec's "after Teach remote" case too. That case gets the same 1 °C outdoor/room requirement.
 
 **Files:**
-- Modify: `src/services/ac-monitoring.ts` (`observeCalibration`, `beginAcDeparture`, `startAcCalibration`, new exports)
+- Modify: `src/services/ac-monitoring.ts` (`observeCalibration`, `beginAcDeparture`, `startAcCalibration`, new export)
 - Modify: `src/state/app-provider.tsx` (device subscription effect)
 - Test: `tests/ac-monitoring-hub.test.cjs` (append)
 
 **Interfaces:**
-- Consumes: snapshot `lastCommand`, `commandResult` (Task 3).
-- Produces (`src/services/ac-monitoring.ts`):
+- Consumes: snapshot `lastCommand` and `commandResult` (Task 3).
+- Produces:
   ```ts
   export const AUTO_CALIBRATION_MAX_RESULT_AGE_MS = 10 * 60_000;
-  export function startAutomaticCalibration(source: 'teach-remote'): Promise<AcMonitoringState>;
   export function calibrateAfterCommandResult(snapshot: AcDeviceSnapshot): Promise<AcMonitoringState>;
   ```
 
-- [ ] **Step 1: Write the failing tests** (same fixture; `departure` optional; `lastCommand`/`commandResult` set through `snapshotPatch`). Use whole-degree temperatures at the 1 °C boundary, because `23.4 - 22.4` in floating point is below 1.
+- [ ] **Step 1: Write the failing tests** (same fixture). Use whole degrees at the 1 °C boundary: in floating point, `23.4 - 22.4` comes out below 1.
 
 ```js
 const off = (requestedAt, status = 'sent', handledAt = requestedAt + 1_000) => ({
+  powerState: null,
   lastCommand: { value: 'OFF', requestedAt, source: 'notification' },
   commandResult: { requestedAt, status, handledAt },
 });
 test('a matching sent result starts a silent shut-off calibration without wiping readings', async () => {
-  const m = monitoring({ remote: toggle, outdoorCelsius: 30, snapshotPatch: { ...off(NOW - 30_000), powerState: null }, stateReadings: 3 });
+  const m = monitoring({ outdoorCelsius: 30, snapshotPatch: off(NOW - 30_000), stateReadings: 3 });
   const state = await m.calibrateAfterCommandResult(m.snapshot);
   assert.equal(state.calibration.source, 'shut-off');
-  assert.equal(state.calibration.startedAt, NOW - 29_000);   // handledAt
+  assert.equal(state.calibration.startedAt, NOW - 29_000); // handledAt
   assert.equal(state.calibration.temperatureAtStart, 22);
   assert.equal(state.calibration.outdoorAtStart.temperatureCelsius, 30);
   assert.ok(state.readings.length >= 3);
   assert.equal(state.lastCalibratedCommandAt, NOW - 30_000);
   assert.equal(state.calibrationMessage, '');
 });
+test('needs outdoor at least 1 °C warmer than the room', async () => {
+  for (const [outdoorCelsius, started] of [[22.9, false], [23, true]]) {
+    const m = monitoring({ departure: false, outdoorCelsius, snapshotPatch: off(NOW - 30_000) });
+    assert.equal((await m.calibrateAfterCommandResult(m.snapshot)).calibration !== null, started);
+  }
+});
 test('each result is handled once, even when it could not start', async () => {
-  const m = monitoring({ outdoorCelsius: 22.5, snapshotPatch: { ...off(NOW - 30_000), powerState: null } });
+  const m = monitoring({ outdoorCelsius: 22.5, snapshotPatch: off(NOW - 30_000) });
   await m.calibrateAfterCommandResult(m.snapshot);
   m.setOutdoor(30);
   assert.equal((await m.calibrateAfterCommandResult(m.snapshot)).calibration, null);
 });
 test('non-sent, unmatched or old results start nothing', async () => {
   for (const patch of [off(NOW - 30_000, 'no-code'), { ...off(NOW - 30_000), commandResult: { requestedAt: NOW - 90_000, status: 'sent', handledAt: NOW - 89_000 } }, off(NOW - 11 * MINUTE)]) {
-    const m = monitoring({ snapshotPatch: { ...patch, powerState: null } });
+    const m = monitoring({ snapshotPatch: patch });
     assert.equal((await m.calibrateAfterCommandResult(m.snapshot)).calibration, null);
   }
 });
 test('a running calibration is never replaced', async () => {
-  const m = monitoring({ calibration: { source: 'manual', startedAt: NOW - 5 * MINUTE }, snapshotPatch: { ...off(NOW - 30_000), powerState: null } });
+  const m = monitoring({ calibration: { source: 'manual', startedAt: NOW - 5 * MINUTE }, snapshotPatch: off(NOW - 30_000) });
   assert.equal((await m.calibrateAfterCommandResult(m.snapshot)).calibration.source, 'manual');
 });
-test('teach-remote calibration needs outdoor at least 1 °C warmer than the room', async () => {
-  assert.equal((await monitoring({ departure: false, outdoorCelsius: 22.9, snapshotPatch: { powerState: null } }).startAutomaticCalibration('teach-remote')).calibration, null);
-  assert.equal((await monitoring({ departure: false, outdoorCelsius: 23, snapshotPatch: { powerState: null } }).startAutomaticCalibration('teach-remote')).calibration.source, 'teach-remote');
+test('shut-off calibrations give up silently; manual ones keep their message', async () => {
+  const run = (source) => monitoring({ departure: false, calibration: { source, startedAt: NOW - 121 * MINUTE }, settingsPatch: { phoneDepartedAt: null } }).evaluateAcMonitoring();
+  assert.equal((await run('shut-off')).calibrationMessage, '');
+  assert.match((await run('manual')).calibrationMessage, /^Calibration stopped/);
 });
-test('automatic calibrations give up silently; manual ones keep their message', async () => {
-  const auto = monitoring({ departure: false, calibration: { source: 'shut-off', startedAt: NOW - 121 * MINUTE }, settingsPatch: { phoneDepartedAt: null } });
-  assert.equal((await auto.evaluateAcMonitoring()).calibrationMessage, '');
-  const manual = monitoring({ departure: false, calibration: { source: 'manual', startedAt: NOW - 121 * MINUTE }, settingsPatch: { phoneDepartedAt: null } });
-  assert.match((await manual.evaluateAcMonitoring()).calibrationMessage, /^Calibration stopped/);
-});
-test('leaving home keeps an automatic calibration but stops a manual one', async () => {
-  const auto = monitoring({ departure: false, calibration: { source: 'teach-remote', startedAt: NOW - 5 * MINUTE }, settingsPatch: { phoneDepartedAt: NOW } });
-  assert.equal((await auto.beginAcDeparture(auto.settings)).calibration.source, 'teach-remote');
-  const manual = monitoring({ departure: false, calibration: { source: 'manual', startedAt: NOW - 5 * MINUTE }, settingsPatch: { phoneDepartedAt: NOW } });
-  assert.equal((await manual.beginAcDeparture(manual.settings)).calibration, null);
+test('leaving home keeps a shut-off calibration but stops a manual one', async () => {
+  const leave = (source) => { const m = monitoring({ departure: false, calibration: { source, startedAt: NOW - 5 * MINUTE }, settingsPatch: { phoneDepartedAt: NOW } }); return m.beginAcDeparture(m.settings); };
+  assert.equal((await leave('shut-off')).calibration.source, 'shut-off');
+  assert.equal((await leave('manual')).calibration, null);
 });
 ```
-
-  Fixture helpers this needs: `stateReadings` (n readings one minute apart before NOW), `calibration` (partial, completed with `deviceId`, `temperatureAtStart: 22`, `outdoorAtStart`), `m.setOutdoor(c)`, `m.snapshot`, `m.settings`.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -526,15 +709,28 @@ Run: `node --test tests/ac-monitoring-hub.test.cjs`
 Expected: the new tests FAIL.
 
 - [ ] **Step 3: Implement.**
-  - Write one **non-serialized** helper, `beginAutomaticCalibration(state, settings, snapshot, outdoor, source, startedAt): void`, and call it from both serialized exports. Calling `serialize` inside `serialize` deadlocks the queue.
-  - The helper does nothing if any of these hold: `state.calibration` is set, `snapshot.deviceId !== settings.acDeviceId`, `!freshTemperature(snapshot, now)`, `freshPowerState(snapshot, now) === 'ON'`, or `!outdoor || outdoor.temperatureCelsius - snapshot.roomTemperatureCelsius < 1`.
-  - Otherwise it applies the same `thermalDeviceId` reset as `startAcCalibration` and **merges** the reading with `mergeReadings` (no reset). It sets `state.outdoor` and `state.calibration = { …, source }` and leaves `calibrationMessage` untouched.
-  - `calibrateAfterCommandResult`: proceed only if `commandResult.status === 'sent'`, `commandResult.requestedAt === lastCommand?.requestedAt`, and that value `!== state.lastCalibratedCommandAt`. Set `lastCalibratedCommandAt` whenever those match. Start with `startedAt = commandResult.handledAt`, but only if `Date.now() - handledAt <= AUTO_CALIBRATION_MAX_RESULT_AGE_MS`. Fetch outdoor with `getNearbyOutdoorTemperature(settings.homeLocation)` and save.
-  - `startAutomaticCalibration('teach-remote')`: load settings, snapshot and outdoor as `startAcCalibration` does, with `startedAt = Date.now()`. Don't throw; return the state unchanged when it can't start.
-  - `startAcCalibration` sets `source: 'manual'`.
-  - `observeCalibration`: for `shut-off`/`teach-remote`, the stop branch clears `calibration` without touching `calibrationMessage`. On success with `shut-off`, prefix the existing success message with "The room is warming, so the AC is likely off now. ".
-  - `beginAcDeparture`: stop the calibration (with its existing message) only when `source` is `'manual'` or missing.
-  - In `app-provider.tsx`'s `subscribeToDevice` effect, next to `recordAcReading`, call `void calibrateAfterCommandResult(snapshot).then((state) => { if (state.calibration) void startAcBackgroundMonitoring().catch(() => undefined); })`.
+  - **`calibrateAfterCommandResult`** (wrapped in `serialize`; don't call other serialized functions inside it, because the queue would deadlock):
+    - Proceed only if all of these hold: `commandResult.status === 'sent'`, `commandResult.requestedAt === lastCommand?.requestedAt`, and that value `!== state.lastCalibratedCommandAt`.
+    - When those match, always set `lastCalibratedCommandAt`.
+    - Start the calibration only if all of these hold:
+      - `Date.now() - handledAt <= AUTO_CALIBRATION_MAX_RESULT_AGE_MS`
+      - no calibration is running
+      - `snapshot.deviceId === settings.acDeviceId`
+      - `freshTemperature(snapshot, now)`
+      - `freshPowerState(snapshot, now) !== 'ON'`
+      - outdoor (from `getNearbyOutdoorTemperature(settings.homeLocation)`) is at least 1 °C warmer than the room
+    - To start it:
+      - Apply the same `thermalDeviceId` reset as `startAcCalibration`.
+      - **Merge** the reading with `mergeReadings`; don't reset.
+      - Set `state.outdoor`.
+      - Set `state.calibration = { deviceId, startedAt: handledAt, temperatureAtStart: snapshot.roomTemperatureCelsius, outdoorAtStart: outdoor, source: 'shut-off' }`.
+      - Leave `calibrationMessage` untouched.
+  - **`startAcCalibration`** sets `source: 'manual'`.
+  - **`observeCalibration`** for `shut-off`:
+    - The stop branch clears `calibration` without touching `calibrationMessage`.
+    - On success, prefix the existing success message with "The room is warming, so the AC is likely off now. ".
+  - **`beginAcDeparture`** stops the calibration, with its existing message, only when `source` is `'manual'` or missing.
+  - **`app-provider.tsx`:** in the `subscribeToDevice` effect, next to `recordAcReading`, add `void calibrateAfterCommandResult(snapshot).then((state) => { if (state.calibration) void startAcBackgroundMonitoring().catch(() => undefined); })`.
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -545,12 +741,12 @@ Expected: all pass.
 
 ```bash
 git add src/services/ac-monitoring.ts src/state/app-provider.tsx tests/ac-monitoring-hub.test.cjs
-git commit -m "feat(ac): learn room warming automatically after shut-off and Teach remote"
+git commit -m "feat(ac): learn room warming automatically after a shut-off"
 ```
 
 ---
 
-### Task 6: Teach remote screen
+### Task 7: Teach remote screen
 
 **Files:**
 - Create: `src/components/teach-remote-flow.tsx`
@@ -560,46 +756,68 @@ git commit -m "feat(ac): learn room warming automatically after shut-off and Tea
 - Modify: `src/state/app-provider.tsx`, `src/app/(tabs)/settings/developer.tsx`
 
 **Interfaces:**
-- Consumes: `requestRemoteLearning`, `sendTurnOffCommand`, `setMockLearnOutcome` (Task 3); `getLearnPhase`, `LEARN_PHASE_MESSAGES`, `describeLastCommand` (Task 1); `startAutomaticCalibration` (Task 5).
-- Produces (context additions in `AppContextValue`):
+- Consumes:
+  - From Task 3/4: `requestRemoteLearning`, `sendTurnOffCommand`, `setMockLearnOutcome`, `setMockRemote`.
+  - From Task 1: `getLearnPhase`, `LEARN_PHASE_MESSAGES`, `describeLastCommand`.
+  - From Task 2: `needsWarmingRateHint`, `TOGGLE_LEARNING_HINT`.
+  - `learnedThermalTimeConstant`.
+- Produces:
   ```ts
+  // AppContextValue additions
   acDevice: AcDeviceSnapshot;
   startRemoteLearning: () => Promise<void>;   // requestRemoteLearning(settings.acDeviceId)
-  testRemote: () => Promise<void>;            // sendTurnOffCommand(settings.acDeviceId, 'app'); no guard (user just turned the AC on)
-  finishRemoteTest: () => Promise<void>;      // startAutomaticCalibration('teach-remote'), then startAcBackgroundMonitoring() if calibration started
+  testRemote: () => Promise<void>;            // sendTurnOffCommand(settings.acDeviceId, 'app'); no guard: the user just turned the AC on
   setDemoLearnOutcome: (outcome: 'saved' | 'timeout' | 'rejected') => void;
+  setDemoRemote: (kind: RemoteKind | null) => void;
+  // components
+  export function TeachRemoteFlow(props: { onDone: () => void; onOpenCalibration: () => void; onSkip?: () => void }): JSX.Element;
+  export function HubCard(): JSX.Element;
   ```
-  `export function TeachRemoteFlow(props: { onDone: () => void; onSkip?: () => void }): JSX.Element`, `export function HubCard(): JSX.Element`.
 
 - [ ] **Step 1: Context.** Add the members above to `app-provider.tsx`, with `acDevice: device`.
 
-- [ ] **Step 2: `TeachRemoteFlow`.** These steps follow spec "2. Teach remote" (layout and other copy are free, within the existing design system):
+- [ ] **Step 2: `TeachRemoteFlow`**, following spec "2. Teach remote". Layout and any other copy are free, within the existing design system.
   1. **Prepare:** "Turn your AC on with its remote, then tap Start." Button **Start**.
-  2. **Start:** record `requestBefore = acDevice.learnRequestedAt` and `attemptStartedAt = Date.now()`, then call `startRemoteLearning()`. Tick `now` every 1 s and render `LEARN_PHASE_MESSAGES[getLearnPhase(...)]` with `currentRequest = acDevice.learnRequestedAt` and `status = acDevice.learnStatus`. While listening, also show "Your AC will probably turn off too. That's expected."
-  3. **`timeout` / `rejected` / `no-response`:** show **Try again**, which goes back to Prepare.
-  4. **`saved`:** "Turn your AC back on with its remote, then test it." Buttons **Test it** and **Skip test** (Skip calls `onDone`).
-  5. **Test it:** record `commandBefore = acDevice.lastCommand?.requestedAt ?? null`, then `await testRemote()`. Show `describeLastCommand(...)` once `acDevice.lastCommand.requestedAt !== commandBefore`. On a matched `sent`, ask "Did your AC turn off?" **Yes** runs `await finishRemoteTest()` then `onDone()`. **No** goes back to Prepare. On any other matched status, show its message and **Try again**.
-  6. Disable Start when `connectionStatus === 'offline'` and say "The hub is offline."
+  2. **Start:**
+     - Record `requestBefore = acDevice.learnRequestedAt` and `attemptStartedAt = Date.now()`, then call `startRemoteLearning()`.
+     - Tick `now` every second. Render `LEARN_PHASE_MESSAGES[getLearnPhase(...)]`, with `currentRequest = acDevice.learnRequestedAt` and `status = acDevice.learnStatus`.
+     - While listening, also show "Your AC will probably turn off too. That's expected."
+  3. **`timeout` / `rejected` / `no-response`:** button **Try again**, which goes back to Prepare.
+  4. **`saved`:** "Turn your AC back on with its remote, then test it." Buttons **Test it** and **Skip test**. Skip test goes to Success.
+  5. **Test it:**
+     - Record `commandBefore = acDevice.lastCommand?.requestedAt ?? null`, then `await testRemote()`.
+     - Show `describeLastCommand(...)` once `acDevice.lastCommand.requestedAt !== commandBefore`.
+     - On a matched `sent`, ask "Did your AC turn off?" **Yes** goes to Success. **No** goes back to Prepare.
+     - On any other matched status, show its message and **Try again**.
+     - The `sent` result already starts the shut-off calibration (Task 6). Nothing else is needed here.
+  6. **Success:** "Remote taught." If `needsWarmingRateHint(acDevice.remote, learnedThermalTimeConstant(acMonitoring))`, also show `TOGGLE_LEARNING_HINT` and a button **Open Calibration** (`onOpenCalibration`). Button **Done** (`onDone`).
+  7. Disable Start when `connectionStatus === 'offline'`, and say "The hub is offline."
 
 - [ ] **Step 3: Routes.**
-  - `settings/teach.tsx`: wrap the flow in `SettingsPage` (title "Teach remote"), with `onDone={() => router.back()}`.
-  - `onboarding/teach.tsx`: an onboarding shell like `onboarding/reminder.tsx`'s header, with `onDone` and `onSkip` both `router.push('/onboarding/reminder')`.
+  - **`settings/teach.tsx`:** `SettingsPage` titled "Teach remote". `onDone={() => router.back()}`, `onOpenCalibration={() => router.replace('/settings/ac')}`. The calibration card is in `AcSettings` on that screen.
+  - **`onboarding/teach.tsx`:** an onboarding shell like the header of `onboarding/reminder.tsx`. `onDone`, `onSkip` and `onOpenCalibration` all go to `router.push('/onboarding/reminder')`; that screen also renders `AcSettings` with the calibration card.
 
-- [ ] **Step 4: `HubCard`** (Settings → AC). It shows:
-  - `settings.acDeviceId` and the online/offline status
-  - the remote state: "Remote taught · {protocol}" or "Remote not taught"
-  - a button **Teach remote** that runs `router.push('/settings/teach')`
+- [ ] **Step 4: `HubCard`** (Settings → AC) shows:
+  - `settings.acDeviceId` and online/offline
+  - "Remote taught · {protocol}" or "Remote not taught"
+  - a button **Teach remote** (`router.push('/settings/teach')`)
 
-  Task 9 adds Add hub here.
+  Task 10 adds **Add hub** to this card.
 
-- [ ] **Step 5: Demo lab.** In `developer.tsx`, add a "Hub" block with a `SegmentedControl` "Next teach result" (Saved / Timeout / Rejected) that calls `setDemoLearnOutcome`.
+- [ ] **Step 5: Demo lab.** In `developer.tsx`, add a "Hub" block with:
+  - `SegmentedControl` "Remote" (Not taught / AC state / Toggle / Raw), calling `setDemoRemote`
+  - `SegmentedControl` "Next teach result" (Saved / Timeout / Rejected), calling `setDemoLearnOutcome`
 
 - [ ] **Step 6: Verify**
 
-Run: `npx expo start` (stop when Metro is ready), then `npm run typecheck && npm run lint && node --test tests/*.test.cjs`
+Run: `npx expo start` and stop it when Metro is ready. Then run `npm run typecheck && npm run lint && node --test tests/*.test.cjs`.
 Expected: no errors.
 
-Demo check (`npm run ios`, Explore the demo): Settings → AC monitoring → Teach remote. Start shows "Waiting for the hub…", then the listening copy, then the saved step. Test it shows "Command sent", then the question. Yes returns to Settings. Repeat with Timeout and Rejected in Demo lab, and check that Try again works.
+Demo check (`npm run ios`, then Explore the demo):
+- Go to Settings → AC monitoring → Teach remote. Start shows "Waiting for the hub…", then the listening copy, then the saved step.
+- Test it shows "Command sent" and then the question. Yes shows Success.
+- With Remote set to Toggle beforehand, Success shows the hint, and Open Calibration lands on AC monitoring.
+- With Timeout and with Rejected, the right message appears and Try again works.
 
 - [ ] **Step 7: Commit**
 
@@ -610,16 +828,16 @@ git commit -m "feat(hub): add Teach remote flow and hub card"
 
 ---
 
-### Task 7: Honest Turn it off: re-check, result messages, offline status
+### Task 8: Honest Turn it off: re-check, result messages, offline status
 
 **Files:**
 - Create: `src/services/turn-off.ts`
-- Modify: `src/services/notifications.ts` (`processNotificationResponse`: stop sending; drop the `sendTurnOffCommand` import)
+- Modify: `src/services/notifications.ts`: `processNotificationResponse` stops sending, and the `sendTurnOffCommand` import goes.
 - Modify: `src/state/app-provider.tsx`, `src/app/(tabs)/dashboard.tsx`, `src/app/(tabs)/settings/developer.tsx`
 - Test: `tests/turn-off.test.cjs`
 
 **Interfaces:**
-- Consumes: `evaluateAcMonitoring`, `learnedThermalTimeConstant`, `getDeviceSnapshot`, `sendTurnOffCommand`, `loadSettings`, `getTurnOffAvailability`, `describeLastCommand`, `getHubConnectionStatus`, `setMockRemote`, `setMockHubOnline`.
+- Consumes: `evaluateAcMonitoring`, `learnedThermalTimeConstant`, `getDeviceSnapshot`, `sendTurnOffCommand`, `loadSettings`, `getTurnOffAvailability`, `needsWarmingRateHint`, `TOGGLE_LEARNING_HINT`, `describeLastCommand`, `getHubConnectionStatus`, `setMockHubOnline`.
 - Produces:
   ```ts
   // src/services/turn-off.ts
@@ -631,26 +849,36 @@ git commit -m "feat(hub): add Teach remote flow and hub card"
   turnOff: () => Promise<TurnOffOutcome>;          // was Promise<void>; calls requestTurnOff('app')
   turnOffAvailability: TurnOffAvailability;        // useMemo from device + acMonitoring
   lastCommandLabel: string;                        // describeLastCommand(device.lastCommand, device.commandResult)
-  connectionStatus: ConnectionStatus;              // live: device.connectionStatus === 'offline' ? 'offline' : getHubConnectionStatus(device.lastSeenAt, now); mock: device.connectionStatus
-  setDemoRemote: (kind: RemoteKind | null) => void;
+  connectionStatus: ConnectionStatus;              // live: getHubConnectionStatus(device.lastSeenAt, now); mock: device.connectionStatus
   setDemoHubOnline: (online: boolean) => void;
   ```
 
-- [ ] **Step 1: Write the failing tests** (`load('src/services/turn-off.ts', { '@/services/ac-monitoring': { evaluateAcMonitoring, learnedThermalTimeConstant: (s) => s.tau ?? null }, '@/services/firebase': { getDeviceSnapshot, sendTurnOffCommand }, '@/services/settings': { loadSettings }, '@/lib/turn-off-guard': load('src/lib/turn-off-guard.ts') })`)
+- [ ] **Step 1: Write the failing tests.** Load the module with these fakes:
+
+```js
+load('src/services/turn-off.ts', {
+  '@/services/ac-monitoring': { evaluateAcMonitoring, learnedThermalTimeConstant: (s) => s.tau ?? null },
+  '@/services/firebase': { getDeviceSnapshot, sendTurnOffCommand },
+  '@/services/settings': { loadSettings },
+  '@/lib/turn-off-guard': load('src/lib/turn-off-guard.ts'),
+});
+```
+
+  In the `turnOff(...)` fixture:
+  - The fake `evaluateAcMonitoring` counts its calls. It returns `status` (after applying `afterEvaluate`), `outdoor: { temperatureCelsius }` and `tau`.
+  - The snapshot has room 22 and the given remote.
 
 ```js
 const toggle = { learned: true, learnedAt: 1, kind: 'toggle', protocol: 'NEC' };
 const acState = { ...toggle, kind: 'ac-state', protocol: 'DAIKIN' };
 test('requestTurnOff sends for an ac-state remote even at home', async () => {
   const t = turnOff({ remote: acState, state: { status: 'home', tau: null } });
-  const outcome = await t.requestTurnOff('app');
-  assert.equal(outcome.sent, true);
+  assert.equal((await t.requestTurnOff('app')).sent, true);
   assert.deepEqual(t.sent, [['homeguard-a1b2c3', 'app']]);
 });
 test('requestTurnOff refuses a toggle remote without a learned warming rate', async () => {
   const t = turnOff({ remote: toggle, state: { status: 'likely-on', tau: null, outdoor: 30 } });
   const outcome = await t.requestTurnOff('notification');
-  assert.equal(outcome.sent, false);
   assert.equal(outcome.availability.reason, 'no-learned-tau');
   assert.equal(t.sent.length, 0);
 });
@@ -667,26 +895,33 @@ test('requestTurnOff points to Teach remote when the remote is not taught', asyn
 });
 ```
 
-  The `turnOff(...)` fixture's fake `evaluateAcMonitoring` counts calls and returns a state with `status` (after `afterEvaluate`), `outdoor: { temperatureCelsius }`, and `tau`. The fake snapshot has room 22 and the given remote.
-
 - [ ] **Step 2: Run to verify failure**
 
 Run: `node --test tests/turn-off.test.cjs`
 Expected: FAIL (module missing).
 
-- [ ] **Step 3: Implement `requestTurnOff`.** It runs `loadSettings()`, then `state = await evaluateAcMonitoring()`, then `getDeviceSnapshot(settings.acDeviceId)`. It builds the availability from `state.status`, `state.outdoor?.temperatureCelsius ?? null`, `snapshot.roomTemperatureCelsius` and `learnedThermalTimeConstant(state)`. It calls `sendTurnOffCommand(settings.acDeviceId, source)` only when the result is `available`.
+- [ ] **Step 3: Implement `requestTurnOff`.**
+  1. `loadSettings()`.
+  2. `state = await evaluateAcMonitoring()`.
+  3. `getDeviceSnapshot(settings.acDeviceId)`.
+  4. Build the availability from `state.status`, `state.outdoor?.temperatureCelsius ?? null`, `snapshot.roomTemperatureCelsius` and `learnedThermalTimeConstant(state)`.
+  5. Call `sendTurnOffCommand(settings.acDeviceId, source)` only when the availability is `available`.
 
-- [ ] **Step 4: Notification action.** `processNotificationResponse` returns `{ action: 'turn_off', deviceId, deviceType }` without sending anything (this avoids a `notifications → turn-off → ac-monitoring → notifications` import cycle). In `app-provider.tsx`, handle `turn_off` from both `addNotificationActionListener` and `processLastNotificationResponse()` the same way. Call `requestTurnOff('notification')`, and when `!outcome.sent`, run `Alert.alert('Command not sent', outcome.availability.message)`.
+- [ ] **Step 4: Notification action.**
+  - `processNotificationResponse` returns `{ action: 'turn_off', deviceId, deviceType }` without sending. This avoids a `notifications → turn-off → ac-monitoring → notifications` import cycle.
+  - In `app-provider.tsx`, handle `turn_off` from both `addNotificationActionListener` and `processLastNotificationResponse()`: call `requestTurnOff('notification')`. When `!outcome.sent`, call `Alert.alert('Command not sent', outcome.availability.message)`.
 
 - [ ] **Step 5: Dashboard.**
-  - When `turnOffAvailability.state === 'teach-remote'`, replace the Turn off AC button with a **Teach remote** button (`router.push('/settings/teach')`) and show `turnOffAvailability.message`.
-  - When `blocked`, disable the button and show the message under it.
-  - After a press that returns `{ sent: false }`, show that message inline.
-  - The "Last command" card shows `lastCommandLabel`.
-  - The sensor row uses the new `connectionStatus`, so in live mode it goes offline 3 minutes after the last telemetry, recomputed on the existing 15 s `now` tick.
-  - Leave the other labels unchanged.
+  - **`teach-remote`:** replace Turn off AC with a **Teach remote** button (`router.push('/settings/teach')`) and show the message.
+  - **`blocked`:** disable the button and show the message under it. If `needsWarmingRateHint(device.remote, learnedThermalTimeConstant(acMonitoring))`, also show `TOGGLE_LEARNING_HINT` and an **Open Calibration** button (`router.push('/settings/ac')`).
+  - **Press that returns `{ sent: false }`:** show that message inline.
+  - **"Last command" card:** shows `lastCommandLabel`.
+  - **Sensor row:** uses the new `connectionStatus`. It is recomputed on the existing 15 s `now` tick, so live goes offline 3 minutes after the last telemetry.
+  - Leave other labels unchanged.
 
-- [ ] **Step 6: Demo lab.** In the "Hub" block, add a `SegmentedControl` "Remote" (Not taught / AC state / Toggle / Raw) that calls `setDemoRemote`, and a `Switch` "Hub online" that calls `setDemoHubOnline`. Make `sendTestReminder` pass `turnOff: getTurnOffAvailability({ remote: device.remote, status: 'likely-on', outdoorCelsius: acMonitoring.outdoor?.temperatureCelsius ?? null, roomCelsius: device.roomTemperatureCelsius, tauMinutes: learnedThermalTimeConstant(acMonitoring) })`.
+- [ ] **Step 6: Demo lab.**
+  - Add a `Switch` "Hub online" to the "Hub" block, calling `setDemoHubOnline`.
+  - Make `sendTestReminder` pass `turnOff: getTurnOffAvailability({ remote: device.remote, status: 'likely-on', outdoorCelsius: acMonitoring.outdoor?.temperatureCelsius ?? null, roomCelsius: device.roomTemperatureCelsius, tauMinutes: learnedThermalTimeConstant(acMonitoring) })`.
 
 - [ ] **Step 7: Verify**
 
@@ -694,10 +929,10 @@ Run: `node --test tests/*.test.cjs && npm run typecheck && npm run lint`
 Expected: all pass.
 
 Demo check:
-- AC state remote: Turn off AC shows "Waiting for the hub", then "Command sent". The AC likelihood card never changes to "Off".
-- Not taught: a Teach remote button appears. A command sent anyway from the notification ends in "Teach your remote first".
-- Toggle: the button is disabled with the not-likely-on message. "Send AC alert now" arrives with no action buttons and the no-learned-tau text.
-- Hub online off: the row says offline, and Turn off AC stays at "Waiting for the hub".
+- **AC state:** Turn off AC shows "Waiting for the hub", then "Command sent". The AC likelihood card never turns to "Off".
+- **Not taught:** the Teach remote button appears, and a result of "Teach your remote first" is possible.
+- **Toggle:** the button is disabled, with the not-likely-on message, the hint and Open Calibration. "Send AC alert now" arrives with no action buttons and the no-learned-tau text.
+- **Hub online off:** the row says offline, and a command stays at "Waiting for the hub".
 
 - [ ] **Step 8: Commit**
 
@@ -708,20 +943,22 @@ git commit -m "feat(ac): re-check toggle guard on Turn it off and show honest co
 
 ---
 
-### Task 8: Bluetooth provisioning library behind one interface
+### Task 9: Bluetooth provisioning library behind one interface
 
-**Choice:** `@orbital-systems/react-native-esp-idf-provisioning@0.7.0` (published 2026-10-27, MIT, maintained by Orbital Systems).
-- It is a codegen TurboModule (`codegenConfig` with `TurboModuleRegistry.getEnforcing`), so it works with the new architecture only. Its example app builds on RN 0.84.
+**Choice:** `@orbital-systems/react-native-esp-idf-provisioning@0.7.0`. It was published 2026-10-27, is MIT-licensed, and is maintained by Orbital Systems.
+- It is a codegen TurboModule (`codegenConfig`, `TurboModuleRegistry.getEnforcing`), so it works with the new architecture. Its example app builds on RN 0.84.
 - It ships an Expo config plugin (`app.plugin.js`).
-- On iOS it depends on Espressif's `ESPProvision ~> 3.2`, and supports BLE with `ESPSecurity.secure` and a PoP.
-- It is not in Expo's bundled module list, so Step 4's build gate proves it works on SDK 55. If the gate fails, do Task 8b instead of Step 5.
+- On iOS it depends on Espressif's `ESPProvision ~> 3.2`.
+- It supports BLE with `ESPSecurity.secure` and a proof-of-possession.
+
+It is not in Expo's bundled module list, so Step 4's build gate proves it works with SDK 55. If the gate fails, do Task 9b instead of Step 5.
 
 **Files:**
 - Modify: `package.json`, `package-lock.json`, `app.json`
 - Create: `src/services/hub-provisioning/types.ts`, `src/services/hub-provisioning/esp-provisioner.ts`, `src/services/hub-provisioning/mock-provisioner.ts`, `src/services/hub-provisioning/index.ts`
 
 **Interfaces:**
-- Consumes: `HUB_NAME_PREFIX`, `HUB_PROOF_OF_POSSESSION`, `deviceIdFromHubName`, `classifyProvisionError`, `tidyWifiNetworks`, `ProvisionFailure` (Task 1); `markMockHubProvisioned`, `getFirebaseMode` (Task 3).
+- Consumes: from Task 1, `HUB_NAME_PREFIX`, `HUB_PROOF_OF_POSSESSION`, `deviceIdFromHubName`, `classifyProvisionError`, `tidyWifiNetworks` and `ProvisionFailure`; from Tasks 3 and 4, `markMockHubProvisioned` and `getFirebaseMode`.
 - Produces:
   ```ts
   // types.ts
@@ -743,7 +980,7 @@ git commit -m "feat(ac): re-check toggle guard on Turn it off and show honest co
 npm install --save-exact @orbital-systems/react-native-esp-idf-provisioning@0.7.0
 ```
 
-- [ ] **Step 2: Config plugin.** In the `app.json` `plugins` array, add:
+- [ ] **Step 2: Config plugin.** Add this to the `plugins` array in `app.json`:
 
 ```json
 ["@orbital-systems/react-native-esp-idf-provisioning", {
@@ -752,19 +989,20 @@ npm install --save-exact @orbital-systems/react-native-esp-idf-provisioning@0.7.
 }]
 ```
 
-`transport: "ble"` is required. The default `"both"` overwrites `NSLocationWhenInUseUsageDescription` with the library's text. Do **not** set `neverForLocation`: it would add `maxSdkVersion="30"` to the `ACCESS_FINE_LOCATION` entry that `expo-location` needs.
+- `transport: "ble"` is required. The default, `"both"`, overwrites `NSLocationWhenInUseUsageDescription` with the library's own text.
+- Do **not** set `neverForLocation`. It would add `maxSdkVersion="30"` to the `ACCESS_FINE_LOCATION` permission that `expo-location` needs.
 
 - [ ] **Step 3: Implement the provisioners.**
-  - `esp-provisioner.ts` keeps the current `ESPDevice` in a closure.
-    - `scanForHubs`: `ESPProvisionManager.searchESPDevices(HUB_NAME_PREFIX, ESPTransport.ble, ESPSecurity.secure)`. Map each device to `{ name, deviceId: deviceIdFromHubName(name) }` and drop nulls. An error whose message matches `/not found/i` returns `[]`.
+  - **`esp-provisioner.ts`** keeps the current `ESPDevice` in a closure.
+    - `scanForHubs`: `ESPProvisionManager.searchESPDevices(HUB_NAME_PREFIX, ESPTransport.ble, ESPSecurity.secure)`, mapped to `{ name, deviceId: deviceIdFromHubName(name) }` with nulls dropped. An error whose message matches `/not found/i` returns `[]`.
     - `connect`: `device.connect(HUB_PROOF_OF_POSSESSION, null, null)`.
     - `listWifiNetworks`: `tidyWifiNetworks(list.map(n => ({ ssid: n.ssid, rssi: n.rssi, secured: n.auth !== ESPWifiAuthMode.open })))`.
     - `sendWifiCredentials`: `device.provision(ssid, password)`. On rejection, throw `new HubProvisioningError(classifyProvisionError(e))`.
-  - `mock-provisioner.ts`:
-    - scan: after 1 200 ms, returns `[{ name: 'HomeGuard-A1B2C3', deviceId: 'homeguard-a1b2c3' }]`.
-    - connect: 800 ms.
+  - **`mock-provisioner.ts`:**
+    - Scan waits 1 200 ms, then returns `[{ name: 'HomeGuard-A1B2C3', deviceId: 'homeguard-a1b2c3' }]`.
+    - Connect takes 800 ms.
     - Wi-Fi list: `HomeGuard Demo Wi-Fi` (−48, secured), `Neighbour 2.4G` (−71, secured), `Cafe Guest` (−80, open).
-    - Password `wrong`: throws `HubProvisioningError('wrong-password')`. Any other password: waits 1 500 ms, then calls `markMockHubProvisioned(deviceId)`.
+    - Password `wrong` throws `HubProvisioningError('wrong-password')`. Any other password waits 1 500 ms, then calls `markMockHubProvisioned(deviceId)`.
 
 - [ ] **Step 4: Build gate**
 
@@ -777,12 +1015,12 @@ grep -n "ACCESS_FINE_LOCATION" android/app/src/main/AndroidManifest.xml
 ```
 
 Expected:
-- Bluetooth string present, and the location string still reads "Home Guard uses your location to set your home radius."
+- The Bluetooth string is present, and the location string still reads "Home Guard uses your location to set your home radius."
 - `pod install` pulls `ESPProvision (3.2.x)`, and the app builds and launches in the simulator.
 - Gradle reports `BUILD SUCCESSFUL`.
 - `ACCESS_FINE_LOCATION` has no `maxSdkVersion`.
 
-If `ANDROID_HOME` is unset, report the Android build as unverified; don't skip it silently. `ios/` and `android/` are gitignored, so commit neither.
+If `ANDROID_HOME` is unset, report the Android build as unverified rather than skipping it silently. `ios/` and `android/` are gitignored; don't commit them.
 
 - [ ] **Step 5: Verify and commit** (gate passed)
 
@@ -793,56 +1031,78 @@ git add package.json package-lock.json app.json src/services/hub-provisioning
 git commit -m "feat(hub): add BLE provisioning behind a HubProvisioner interface"
 ```
 
-### Task 8b (only if Task 8's gate fails): local Expo module fallback
+### Task 9b (only if Task 9's gate fails): local Expo module fallback
 
-Use this if the wrapper fails to build or link on SDK 55 / RN 0.83. If the failure is inside the `ESPProvision` pod itself, stop and report instead: this fallback uses the same pod.
+Use this when the wrapper fails to build or link on SDK 55 / RN 0.83. If the failure is inside the `ESPProvision` pod itself, stop and report: this fallback uses the same pod.
 
-1. `npm uninstall @orbital-systems/react-native-esp-idf-provisioning` and remove its `app.json` entry.
-2. `npx create-expo-module@latest --local homeguard-provisioning`, which creates `modules/homeguard-provisioning/`. In `expo-module.config.json`, set `"platforms": ["apple"]` so Android builds without native code.
-3. In the module's podspec, add `s.dependency 'ESPProvision', '~> 3.2'`.
-4. In Swift (Expo Modules API), write `AsyncFunction`s: `searchHubs(prefix) -> [String]`, `connect(name, pop)`, `scanWifi() -> [[String: Any]]` (ssid, rssi, auth) and `provision(ssid, passphrase)`. Each rejects with `ESPProvisionError.description` as the message, so `classifyProvisionError` still works. Also write `disconnect()`. Use `ESPProvisionManager.shared.searchESPDevices(devicePrefix:transport:.ble, security:.secure)` and `ESPDevice.connect` with a delegate that returns the PoP.
-5. Add a config plugin, `plugins/with-hub-provisioning.js`, that sets `NSBluetoothAlwaysUsageDescription` to the same string as Task 8, and list it in `app.json` `plugins`.
-6. Rewrite `esp-provisioner.ts` against `requireOptionalNativeModule('HomeguardProvisioning')`. When the module is `null` (Android), each method throws `HubProvisioningError('unknown', 'Adding a hub is only available on iPhone for now.')`.
+1. Run `npm uninstall @orbital-systems/react-native-esp-idf-provisioning` and remove its `app.json` entry.
+2. Run `npx create-expo-module@latest --local homeguard-provisioning` to create `modules/homeguard-provisioning/`. In its `expo-module.config.json`, set `"platforms": ["apple"]` so Android builds without native code.
+3. In the module podspec, add `s.dependency 'ESPProvision', '~> 3.2'`.
+4. Write the Swift module with the Expo Modules API, as `AsyncFunction`s:
+   - `searchHubs(prefix) -> [String]`
+   - `connect(name, pop)`
+   - `scanWifi() -> [[String: Any]]`, returning ssid, rssi and auth
+   - `provision(ssid, passphrase)`
+   - `disconnect()`
+
+   Reject with `ESPProvisionError.description` as the message, so `classifyProvisionError` still works. Use `ESPProvisionManager.shared.searchESPDevices(devicePrefix:transport: .ble, security: .secure)`, and `ESPDevice.connect` with a delegate that returns the PoP.
+5. Create the config plugin `plugins/with-hub-provisioning.js`. It sets `NSBluetoothAlwaysUsageDescription` to the same string as Task 9. List it in `app.json` `plugins`.
+6. Rewrite `esp-provisioner.ts` against `requireOptionalNativeModule('HomeguardProvisioning')`. When that returns `null` (Android), each method throws `HubProvisioningError('unknown', 'Adding a hub is only available on iPhone for now.')`.
 7. Rerun the Step 4 gate, then commit as `feat(hub): add local ESPProvision module for hub setup`.
 
 ---
 
-### Task 9: Add hub flow
+### Task 10: Add hub flow
 
 **Files:**
 - Create: `src/components/add-hub-flow.tsx`
 - Create: `src/app/(tabs)/settings/hub.tsx`, `src/app/onboarding/hub.tsx`
-- Modify: `src/app/onboarding/stove.tsx:127` (`router.push('/onboarding/hub')`)
-- Modify: `src/components/hub-card.tsx` (add **Add hub**: `router.push('/settings/hub')`)
+- Modify: `src/app/onboarding/stove.tsx:127` to `router.push('/onboarding/hub')`
+- Modify: `src/components/hub-card.tsx` to add **Add hub** (`router.push('/settings/hub')`)
 
 **Interfaces:**
-- Consumes: `getHubProvisioner`, `HubProvisioningError` (Task 8); `getSetupWaitOutcome`, `PROVISION_FAILURE_MESSAGES` (Task 1); `acDevice`, `patchSettings` (context).
+- Consumes:
+  - From Task 9: `getHubProvisioner`, `HubProvisioningError`.
+  - From Task 1: `getSetupWaitOutcome`, `PROVISION_FAILURE_MESSAGES`.
+  - From `@/services/firebase`: `getDeviceSnapshot`.
+  - From context: `acDevice`, `patchSettings`.
 - Produces: `export function AddHubFlow(props: { onConnected: (deviceId: string) => void; onSkip?: () => void }): JSX.Element`.
 
-- [ ] **Step 1: `AddHubFlow`.** Hold one provisioner per mount (`useRef(getHubProvisioner())`) and call `disconnect()` on unmount. These steps follow spec "1. First-time setup":
+- [ ] **Step 1: `AddHubFlow`.** Hold one provisioner per mount (`useRef(getHubProvisioner())`) and call `disconnect()` on unmount. Follow spec "1. First-time setup":
   1. **Intro:** "Plug in your hub. Its light blinks slowly when it's ready." Button **Find my hub**.
-  2. **Scan:** `scanForHubs()`. With no results: "No hub found. Keep the phone near the hub and try again." Button **Scan again**. With one or more results, list them by `name`.
-  3. **Pick:** `connect(hub)`, then `listWifiNetworks()`. Show the list, plus **Enter network name** for hidden networks and the hint "The hub only works with 2.4 GHz Wi-Fi."
-  4. **Password:** a secure text field for secured networks; skip it for open ones. Then **Connect**.
-  5. **Send:** `setupStartedAt = Date.now()` immediately before `sendWifiCredentials`.
-     - On `HubProvisioningError`, show `PROVISION_FAILURE_MESSAGES[reason]`. `wrong-password` and `network-not-found` go back to the password or network step on the same connection. `disconnected` and `unknown` go back to Scan.
-     - On success: `disconnect()`, `await patchSettings({ acDeviceId: hub.deviceId })` (this also resets AC monitoring for the new device), then move to Wait.
-  6. **Wait:** tick `now` every 1 s. Compute `getSetupWaitOutcome({ lastSeenAt: acDevice.deviceId === hub.deviceId ? acDevice.lastSeenAt : null, setupStartedAt, waitStartedAt, now })`, with `waitStartedAt` starting equal to `setupStartedAt`.
+  2. **Scan:** call `scanForHubs()`.
+     - Nothing found: "No hub found. Keep the phone near the hub and try again." Button **Scan again**.
+     - Otherwise, list the hubs by `name`.
+  3. **Pick:** call `connect(hub)`, then `listWifiNetworks()`. Show the list, plus **Enter network name** for hidden networks and the hint "The hub only works with 2.4 GHz Wi-Fi."
+  4. **Password:** a secure text field for secured networks; open networks skip it. Then **Connect**.
+  5. **Send:**
+     - First, `lastSeenAtBefore = (await getDeviceSnapshot(hub.deviceId)).lastSeenAt || null`. If that read throws, show "Check your phone's internet connection, then try again." and don't send. Then record `waitStartedAt = Date.now()` and call `sendWifiCredentials`.
+     - On `HubProvisioningError`, show `PROVISION_FAILURE_MESSAGES[reason]`.
+       - `wrong-password` and `network-not-found` go back to the password or network step on the same connection.
+       - `disconnected` and `unknown` go back to Scan.
+     - On success, call `disconnect()`, then `await patchSettings({ acDeviceId: hub.deviceId })`, which also resets AC monitoring for the new device. Then go to Wait.
+  6. **Wait:** tick `now` every second and compute `getSetupWaitOutcome({ lastSeenAtBefore, lastSeenAt: acDevice.deviceId === hub.deviceId ? acDevice.lastSeenAt : null, waitStartedAt, now })`.
      - `connected`: show "Hub connected", then call `onConnected(hub.deviceId)`.
-     - `timed-out`: "The hub joined Wi-Fi but hasn't checked in yet." Buttons **Keep waiting** (`waitStartedAt = Date.now()`) and **Start over**, with the copy "Hold the hub's button for 10 seconds to reset it, then add it again."
+     - `timed-out`: "The hub joined Wi-Fi but hasn't checked in yet." Two buttons:
+       - **Keep waiting** sets `waitStartedAt = Date.now()`.
+       - **Start over** shows "Hold the hub's button for 10 seconds to reset it, then add it again."
   7. Show **Skip for now** only when `onSkip` is given.
 
 - [ ] **Step 2: Routes.**
-  - `settings/hub.tsx`: `SettingsPage` titled "Add hub", with `onConnected={() => router.replace('/settings/teach')}`.
-  - `onboarding/hub.tsx`: onboarding shell, with `onConnected` → `router.push('/onboarding/teach')` and `onSkip` → `router.push('/onboarding/reminder')`.
-  - `stove.tsx` now pushes `/onboarding/hub`.
+  - **`settings/hub.tsx`:** `SettingsPage` titled "Add hub", with `onConnected` → `router.replace('/settings/teach')`.
+  - **`onboarding/hub.tsx`:** onboarding shell, with `onConnected` → `router.push('/onboarding/teach')` and `onSkip` → `router.push('/onboarding/reminder')`.
+  - **`stove.tsx`:** now pushes `/onboarding/hub`.
 
 - [ ] **Step 3: Verify**
 
-Run: `npx expo start` (stop when Metro is ready), then `npm run typecheck && npm run lint && node --test tests/*.test.cjs`
+Run: `npx expo start` and stop it when Metro is ready. Then run `npm run typecheck && npm run lint && node --test tests/*.test.cjs`.
 Expected: no errors.
 
-Demo check: Settings → AC monitoring → Add hub. The scan shows `HomeGuard-A1B2C3`, then the Wi-Fi list. Password `wrong` shows the wrong-password message and stays on the password step. A correct password reaches "Hub connected" about 3 s later and lands on Teach remote. HubCard now shows `homeguard-a1b2c3` with "Remote not taught".
+Demo check, in Settings → AC monitoring → Add hub:
+- The scan lists `HomeGuard-A1B2C3`, then the Wi-Fi list appears.
+- Password `wrong` shows the wrong-password message and stays on the password step.
+- A correct password reaches "Hub connected" about 3 s later and lands on Teach remote.
+- HubCard now shows `homeguard-a1b2c3` and "Remote not taught".
 
 - [ ] **Step 4: Commit**
 
@@ -853,40 +1113,46 @@ git commit -m "feat(hub): add Bluetooth Add hub flow to onboarding and settings"
 
 ---
 
-### Task 10: Docs, full verification and demo walkthrough
+### Task 11: Docs, full verification and demo walkthrough
 
 **Files:**
 - Modify: `docs/RUN.md`
 
-- [ ] **Step 1: RUN.md.** Make these changes:
-  - Add a "HomeGuard hub" section that links to the contract by its repo path, lists the four new paths, and says the hub never writes `powerState`.
-  - Explain that Add hub needs a development build on a physical iPhone, because the simulator has no Bluetooth.
+- [ ] **Step 1: RUN.md.**
+  - Add a "HomeGuard hub" section that:
+    - links to the contract by its repo path
+    - lists the four new paths
+    - says the hub never writes `powerState`
+    - says the AC is read only from `telemetry`, `remote`, `commands/*` and `learn/status`, so top-level fields such as `devices/{id}/temperatureCelsius` are no longer read
+  - Say that Add hub needs a development build on a physical iPhone, because the simulator has no Bluetooth.
   - Document the Demo lab "Hub" controls and the `wrong` demo password.
   - Under "Checks", replace `node --test tests/stove-detection.test.cjs` with `node --test tests/*.test.cjs`.
 
 - [ ] **Step 2: Full checks**
 
 Run: `node --test tests/*.test.cjs && npm run typecheck && npm run lint && npx expo export --platform ios`
-Expected: all pass; export completes.
+Expected: all pass, and the export completes.
 
 - [ ] **Step 3: Demo-mode walkthrough** (`npm run ios`, no `.env.local`). Tick each item:
-  - [ ] Onboarding: location → stove → **Add hub** (Skip for now works) → Teach remote (skip works) → reminder → dashboard.
-  - [ ] Onboarding with Add hub: password `wrong` shows the wrong-password message, a correct password shows "Hub connected", and the flow continues to Teach remote.
-  - [ ] Teach remote: the saved path ends with "Command sent" and "Did your AC turn off?". **No** returns to the start. **Yes** finishes.
-  - [ ] Teach remote with Timeout and with Rejected (Demo lab) shows the right message and Try again.
-  - [ ] Dashboard, AC state remote: Turn off AC shows "Waiting for the hub", then "Command sent". Nothing says the AC is off.
-  - [ ] Dashboard, not taught: a Teach remote button appears, and it opens Teach remote.
-  - [ ] Dashboard, toggle remote at home: the button is disabled with the power-button message.
-  - [ ] Demo lab "Send AC alert now" with a toggle remote: the notification has no buttons and explains why. With AC state, it has Turn It Off / Keep It On. Tapping Turn It Off sends ("Command sent" on the dashboard).
-  - [ ] Hub online off: the sensor row says offline, and a command stays "Waiting for the hub".
-  - [ ] Simulate leaving home still works, and the existing stove flows are unchanged.
+  - [ ] Onboarding runs location → stove → **Add hub** (Skip for now works) → Teach remote (skip works) → reminder → dashboard.
+  - [ ] Add hub: password `wrong` shows the wrong-password message; a correct password shows "Hub connected" and moves on to Teach remote.
+  - [ ] Teach remote, saved path: "Command sent", then "Did your AC turn off?". **No** returns to the start; **Yes** shows Success.
+  - [ ] Teach remote with Remote set to Toggle: Success shows the hint, and Open Calibration works.
+  - [ ] Teach remote with Timeout and with Rejected shows the right message, and Try again works.
+  - [ ] Dashboard with an AC state remote: "Waiting for the hub", then "Command sent". Nothing says the AC is off.
+  - [ ] Dashboard with Not taught: a Teach remote button appears and opens Teach remote.
+  - [ ] Dashboard with a Toggle remote at home: the button is disabled, with the message, the hint and Open Calibration.
+  - [ ] "Send AC alert now" with Toggle: no buttons, and an explanation. With AC state: Turn It Off sends ("Command sent" on the dashboard).
+  - [ ] Hub online off: the sensor row says offline, and a command stays at "Waiting for the hub".
+  - [ ] Simulate leaving home still works, and the stove flows are unchanged.
 
-- [ ] **Step 4: Live checks, for when the Firebase project and hub exist** (record them in the PR; don't block on them)
-  - [ ] A fresh hub on a physical iPhone: Add hub through to "Hub connected" within 90 s. `settings.acDeviceId` = `homeguard-xxxxxx`.
-  - [ ] Wrong password, then the right one, without resetting the hub.
-  - [ ] Teach remote writes `commands/learnRequest`. `learn/status` moves listening → saved, and `remote` appears.
+- [ ] **Step 4: Live checks, once the Firebase project and hub exist.** Record these in the PR; don't block on them.
+  - [ ] With `enableLogging(true)` from `firebase/database` temporarily on, the app listens only on the six AC child paths and the `temperatureReadings` query, never on `devices/{id}` itself.
+  - [ ] Fresh hub on a physical iPhone: Add hub reaches "Hub connected" within 90 s, and `settings.acDeviceId` is `homeguard-xxxxxx`.
+  - [ ] A wrong password and then the right one works without resetting the hub.
+  - [ ] Teach remote writes `commands/learnRequest`, `learn/status` goes from listening to saved, and `remote` appears.
   - [ ] Leave the geofence → notification → Turn It Off → `commands/result.status = sent` → the app says "Command sent" → the AC turns off. A shut-off calibration starts.
-  - [ ] Unplug the hub: the app shows offline within about 3 min 15 s.
+  - [ ] With the hub unplugged, the app shows offline within about 3 min 15 s.
 
 - [ ] **Step 5: Commit**
 
