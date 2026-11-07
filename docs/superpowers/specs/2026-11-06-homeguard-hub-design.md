@@ -62,8 +62,19 @@ Teaching again replaces the old code.
    - Fresh: no more than 2 minutes old by the hub's NTP clock. Otherwise → `stale`.
 4. Firing:
    - `kind = ac-state`: send 3 times, 300 ms apart (an AC state frame says "off", so repeats are safe).
-   - `kind = toggle` or `raw`: send once (repeating a toggle could turn the AC back on).
+   - `kind = toggle` or `raw`: send once (repeating a toggle could turn the AC back on). The app only lets these be sent when there is a strong sign the AC is on (see "Power-toggle remotes" below).
 5. The hub writes `commands/result`. The app shows **Command sent**, never "AC off". Infrared can't confirm the AC received it.
+
+### Power-toggle remotes (Daniel's decision)
+
+Some remotes only have a single POWER button. Sending that code to an AC that is already off turns it **on**. These remotes are allowed, but only with a stronger signal that the AC is actually on:
+
+- Applies when `remote.kind` is `toggle` or `raw` (raw is unknown, so it is treated as a possible toggle).
+- The app offers **Turn it off** for these codes only when the room is at least 3 °C cooler than the nearby outdoor temperature the app already fetches. *(The 3 °C margin is Claude's call.)*
+- The app checks this twice: when it decides to send the notification, and again at the moment the user taps Turn it off, since conditions may have changed in between.
+- If the signal is too weak or the outdoor temperature is unavailable, the user still gets told the AC *might* be on, but without a Turn it off button. The message explains that their remote uses a power toggle, so HomeGuard won't send it unless it's sure.
+- This is enforced in the app. The hub doesn't know the outdoor temperature, and it fires whatever OFF command it receives.
+- The real fix comes in phase 2, when the power-monitoring plug can tell whether the AC is drawing power.
 
 ### 4. Reporting temperature
 
@@ -94,9 +105,10 @@ Built by a subagent on its own branch in `~/repos/ac-guard`, following the contr
 1. **Add hub flow.** A new onboarding step and an entry in Settings → AC: scan, pick hub, choose Wi-Fi, enter password, send, wait for online, then Teach remote. It needs a Bluetooth provisioning library compatible with Expo dev builds (Espressif's iOS/Android provisioning SDKs, via an existing React Native wrapper if one works with Expo SDK 55; the builder verifies). Adds the iOS Bluetooth permission string.
 2. **Teach remote screen.** Writes `learn/request`, follows `learn/status`, has Try again, and the "Test it now?" step.
 3. **Honest command feedback.** Reads `commands/result` and shows the table's messages. The dashboard stops implying the AC is off because a command was sent.
-4. **"Remote not taught" flag.** When `remote.learned` is `false`, the dashboard and the AC notification point the user to Teach remote.
-5. **Real online/offline status.** The app currently shows the hub as online whenever the node exists, because nothing writes `connectionStatus`. It should instead treat the hub as offline when `telemetry.lastSeenAt` is more than 3 minutes old.
-6. **Demo mode keeps working.** Every new screen has a mock path, like the existing mock Firebase, so the app still demos without hardware.
+4. **Power-toggle guard.** Implements the "Power-toggle remotes" rule above in the AC notification, the notification action handler, and the dashboard button.
+5. **"Remote not taught" flag.** When `remote.learned` is `false`, the dashboard and the AC notification point the user to Teach remote.
+6. **Real online/offline status.** The app currently shows the hub as online whenever the node exists, because nothing writes `connectionStatus`. It should instead treat the hub as offline when `telemetry.lastSeenAt` is more than 3 minutes old.
+7. **Demo mode keeps working.** Every new screen has a mock path, like the existing mock Firebase, so the app still demos without hardware.
 
 ## Goals
 
@@ -120,8 +132,13 @@ Built by a subagent on its own branch in `~/repos/ac-guard`, following the contr
 - The hub turns the AC off without the user tapping Turn it off.
 - An old OFF command fires again after a reboot or a reconnect.
 - A toggle-style remote code gets repeated and leaves the AC on.
+- A toggle-style code is sent without a strong sign the AC is on, and turns an off AC on.
 - The app says the AC is off when the hub only sent a signal.
 - A reading is invented when the sensor fails.
+
+## Status
+
+The hardware is not built yet (as of 2026-11-07). The firmware is written from the PDF and the artifact. Board-level checks wait until the board exists.
 
 ## Prerequisites outside the code
 
@@ -156,7 +173,16 @@ Built by a subagent on its own branch in `~/repos/ac-guard`, following the contr
 3. Hub Bluetooth setup and factory reset (removes the temporary config).
 4. App changes (can run alongside 1–3 once this contract is fixed).
 
-Done means the whole flow works end to end on real hardware: fresh hub → Add hub → Teach remote → leave the geofence → notification → Turn it off → AC turns off, and the app says "Command sent".
+### Testing without the hardware
+
+The hub isn't built yet, so the code is written from the PDF and the artifact and checked without a board:
+
+- Logic that doesn't touch hardware runs as tests on the laptop (PlatformIO's `native` environment). That covers which commands to act on (new, fresh, not already handled), firing rules by `kind`, the learn state machine, the button-hold timing, and the JSON written to Firebase.
+- Hardware access (sensor, IR, Wi-Fi, Bluetooth, Firebase) sits behind thin wrappers, so the logic can be tested with fakes.
+- Every step must compile for the real board (`esp32dev`), including the partition size.
+- The app side is checked in demo mode and against a real Firebase project once one exists.
+
+Done for now: the firmware builds for the ESP32, the laptop tests pass, and the app flows work in demo mode. Done for real, once the board exists: the whole flow works end to end. That means fresh hub → Add hub → Teach remote → leave the geofence → notification → Turn it off → AC turns off, with the app saying "Command sent". Each plan ends with an on-board checklist for that later step, following the PDF's suggested test order.
 
 ## Hardware conflicts for Rishabh (firmware works either way)
 
