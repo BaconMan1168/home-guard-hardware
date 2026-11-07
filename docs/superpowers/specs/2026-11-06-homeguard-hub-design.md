@@ -39,7 +39,7 @@ The product has to be something a customer could set up alone, so setup goes thr
 2. In the app, the user taps **Add hub**. The app scans for `HomeGuard-` devices, connects, lists nearby Wi-Fi networks from the hub, and the user picks one and enters the password.
 3. The app sends the credentials using Espressif's standard provisioning protocol (Arduino `WiFiProv`, BLE scheme, security level 1 with a proof-of-possession code).
 4. The hub joins Wi-Fi. A wrong password is reported back to the app, which asks again. On success the hub turns Bluetooth off for good (frees memory for TLS), signs in to Firebase, and starts reporting.
-5. The app stores the device ID (`homeguard-xxxxxx`, from the Bluetooth name) as `settings.acDeviceId`, then waits until the hub's `telemetry.lastSeenAt` is newer than the moment setup started (up to 90 s) before saying "Hub connected". A hub being set up again already has an old `lastSeenAt`, so "appears" is not enough.
+5. The app stores the device ID (`homeguard-xxxxxx`, from the Bluetooth name) as `settings.acDeviceId`, notes the hub's current `telemetry.lastSeenAt` (or none), then waits up to 90 s, by the phone's own timer, for a larger `lastSeenAt` to appear before saying "Hub connected". Comparing against the hub's own earlier value avoids depending on the phone's clock, and a hub being set up again already has an old `lastSeenAt`.
 6. The app goes straight to **Teach remote**.
 
 On later boots the hub uses its saved Wi-Fi and skips Bluetooth.
@@ -82,7 +82,8 @@ Some remotes only have a single POWER button. Sending that code to an AC that is
 Today τ is only learned when the user runs Calibration by hand. Two automatic sources are added, both feeding the existing `observeCalibration` logic (same quality checks, same 8-value history):
 
 1. **After every shut-off.** When `commands/result.status` is `sent`, the app starts a calibration-style observation from that moment, using the room and outdoor temperatures at that time. If the room then warms the way an AC-off room should, the τ estimate is saved. The app can also say "The room is warming, so the AC is likely off now", which is the closest thing to confirmation infrared allows.
-2. **After Teach remote.** The teach-and-test step ends with the AC off and the user at home, which makes it a natural calibration run. The app starts one automatically if outdoor air is at least 1 °C warmer than the room (the existing calibration requirement).
+   The Teach remote **Test** step sends a normal OFF, so its `sent` result starts one of these too. No separate Teach remote source is needed.
+2. **Toggle and raw remotes** can't send OFF until τ is learned (at least 2 events, per `learnedThermalTimeConstant`), so the Test step gives them at most one. After saving such a code, Teach remote and the dashboard's blocked state explain that Turn it off unlocks once HomeGuard has learned how the room warms, and link to the existing Calibration flow.
 
 Either source silently gives up, as manual calibration already does, if the room doesn't warm cleanly (for example, the user turned the AC back on).
 
@@ -118,7 +119,8 @@ Built by a subagent on its own branch in `~/repos/ac-guard`, following the contr
 4. **Power-toggle guard.** Implements the "Power-toggle remotes" rule above in the AC notification, the notification action handler, and the dashboard button.
 5. **"Remote not taught" flag.** When `remote.learned` is `false`, the dashboard and the AC notification point the user to Teach remote.
 6. **Real online/offline status.** The app currently shows the hub as online whenever the node exists, because nothing writes `connectionStatus`. It should instead treat the hub as offline when `telemetry.lastSeenAt` is more than 3 minutes old.
-7. **Demo mode keeps working.** Every new screen has a mock path, like the existing mock Firebase, so the app still demos without hardware.
+7. **Read only what's needed.** The app currently reads all of `devices/{id}`, including `temperatureReadings`. Once the hub adds about 1,440 readings a day, that would re-download the whole history on every update. The app subscribes to the specific children instead.
+8. **Demo mode keeps working.** Every new screen has a mock path, like the existing mock Firebase, so the app still demos without hardware.
 
 ## Goals
 
@@ -161,6 +163,9 @@ The hardware is not built yet (as of 2026-11-07). The firmware is written from t
 - The hub reports every 60 s instead of answering on request: the app's Smart delay needs the history.
 - Bluetooth setup (Espressif `WiFiProv`) rather than a hub Wi-Fi hotspot: avoids sending iPhone users to Settings mid-setup.
 - Device ID from the MAC (`homeguard-xxxxxx`).
+- Prototype proof-of-possession for Bluetooth setup: `homeguard-pop-v1`, shared by firmware and app.
+- The hub listens on one Firebase stream (`devices/{id}/commands`) to save ESP32 memory, which is why the learn request lives at `commands/learnRequest`.
+- TLS certificate checking is off on the hub for the prototype (known gap, fix before customers).
 - 30 s learn window, 2-minute command freshness, 3×300 ms repeats only for `ac-state` codes.
 - BOOT button for factory reset, onboard LED for status.
 - Add hub only has to work on iOS (the app is iOS-first). Android must still build.

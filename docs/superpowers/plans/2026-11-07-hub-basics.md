@@ -472,7 +472,7 @@ git commit -m "feat(hub): add ir sender for stored codes"
 
 - `#define ENABLE_USER_AUTH` and `#define ENABLE_DATABASE` before `#include <FirebaseClient.h>`.
 - Auth: anonymous sign-up with `UserAccount user(FIREBASE_API_KEY)` and `signup(...)`, as in the library's `examples/App/UserManagement/Anonymous`. It signs up fresh on every boot. Keeping the same anonymous identity across reboots is a known gap.
-- Two `AsyncClientClass`, each with its own `NetworkClientSecure`: one for writes, one for the single SSE stream on `/devices/{id}/commands` (`Database.get(streamClient, path, cb, true)`). Use `setInsecure()` on both. Certificate pinning is a known gap, so record it in the spec's Non-goals in this commit.
+- Two `AsyncClientClass`, each with its own `NetworkClientSecure`: one for writes, one for the single SSE stream on `/devices/{id}/commands` (`Database.get(streamClient, path, cb, true)`). Use `setInsecure()` on both. This is a known gap, already recorded in the spec.
 - Writes are async (`Database.set<object_t>` / `Database.push<object_t>` with a callback that only logs errors). They never block `loop()`.
 - In the stream callback, read `RealtimeDatabaseResult` (`event()`, `dataPath()`, `to<String>()`). For `put`/`patch` events, call `parseCommandsEvent`, then call `onCommand` / `onLearnRequest` for whichever field is set.
 
@@ -484,7 +484,7 @@ Expected: success. Note the RAM/flash usage line in the commit body.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/cloud.* docs/superpowers/specs/2026-11-06-homeguard-hub-design.md
+git add src/cloud.*
 git commit -m "feat(hub): add firebase cloud adapter with single commands stream"
 ```
 

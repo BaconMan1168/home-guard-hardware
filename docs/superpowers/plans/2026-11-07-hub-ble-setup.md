@@ -118,7 +118,7 @@ git commit -m "feat(hub): add bluetooth wifi provisioning adapter"
 ### Task 3: Wire setup and reset into `main.cpp`, remove the temporary Wi-Fi config
 
 **Files:**
-- Modify: `src/main.cpp`, `include/secrets.example.h`, `docs/board-checklist.md`, `docs/superpowers/specs/2026-11-06-homeguard-hub-design.md` (record `homeguard-pop-v1` under "Decided by Claude")
+- Modify: `src/main.cpp`, `include/secrets.example.h`, `docs/board-checklist.md`
 
 **Interfaces:**
 - Consumes: Tasks 1–2, plus Hub Basics' `code_store` (`clearAll`), `cloud`, `status_led`.
@@ -152,6 +152,6 @@ Use Espressif's free **ESP BLE Provisioning** app (iOS/Android), so this works b
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/main.cpp include/secrets.example.h docs/board-checklist.md docs/superpowers/specs/2026-11-06-homeguard-hub-design.md
+git add src/main.cpp include/secrets.example.h docs/board-checklist.md
 git commit -m "feat(hub): bluetooth setup and factory reset"
 ```
