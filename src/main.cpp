@@ -152,9 +152,19 @@ static void factoryReset() {
   ESP.restart();
 }
 
+static void logResetReason() {
+  esp_reset_reason_t reason = esp_reset_reason();
+  if (reason == ESP_RST_BROWNOUT) {
+    Serial.println("Restarted after a brownout: the 5 V supply sagged");
+  } else {
+    Serial.printf("Reset reason %d\n", static_cast<int>(reason));
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("HomeGuard hub");
+  logResetReason();
 
   pinMode(hg::kPinBootButton, INPUT_PULLUP);
   led.begin();
