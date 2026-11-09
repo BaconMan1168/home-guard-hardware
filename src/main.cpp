@@ -37,10 +37,11 @@ static void onCommand(const Command& cmd) {
     saveLastCommandAt(cmd.requestedAt);
     lastCmdAt = cmd.requestedAt;
   }
-  if (d.status == CommandStatus::Sent) irSend(code, d.sendCount);
-  cloudSet("commands/result", commandResultJson(cmd.requestedAt, d.status, nowMs()));
+  CommandStatus status = d.status;
+  if (status == CommandStatus::Sent && !irSend(code, d.sendCount)) status = CommandStatus::Failed;
+  cloudSet("commands/result", commandResultJson(cmd.requestedAt, status, nowMs()));
   Serial.printf("Command %s at %lld: %s\n", cmd.value.c_str(), static_cast<long long>(cmd.requestedAt),
-                commandStatusName(d.status));
+                commandStatusName(status));
 }
 
 static void reportLearnStatus(LearnState state) {

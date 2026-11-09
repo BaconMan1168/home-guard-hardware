@@ -43,6 +43,8 @@ const char* commandStatusName(CommandStatus status) {
   switch (status) {
     case CommandStatus::Sent:
       return "sent";
+    case CommandStatus::Failed:
+      return "failed";
     case CommandStatus::NoCode:
       return "no-code";
     case CommandStatus::Unsupported:

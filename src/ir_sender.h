@@ -5,4 +5,4 @@
 #include "stored_code.h"
 
 void irSenderBegin();
-void irSend(const StoredCode& code, uint8_t times);
+bool irSend(const StoredCode& code, uint8_t times);

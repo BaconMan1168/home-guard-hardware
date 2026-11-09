@@ -10,21 +10,21 @@ static IRsend irsend(hg::kPinIrSend);
 
 void irSenderBegin() { irsend.begin(); }
 
-static void sendOnce(const StoredCode& code) {
+static bool sendOnce(const StoredCode& code) {
   decode_type_t protocol = static_cast<decode_type_t>(code.protocol);
   if (code.kind == CodeKind::Raw) {
     irsend.sendRaw(code.raw.data(), static_cast<uint16_t>(code.raw.size()), 38);
-  } else if (!code.state.empty()) {
-    irsend.send(protocol, code.state.data(), static_cast<uint16_t>(code.state.size()));
-  } else {
-    irsend.send(protocol, code.value, code.bits);
+    return true;
   }
+  if (!code.state.empty()) return irsend.send(protocol, code.state.data(), static_cast<uint16_t>(code.state.size()));
+  return irsend.send(protocol, code.value, code.bits);
 }
 
-void irSend(const StoredCode& code, uint8_t times) {
-  if (!code.present) return;
+bool irSend(const StoredCode& code, uint8_t times) {
+  if (!code.present) return false;
   for (uint8_t i = 0; i < times; i++) {
     if (i > 0) delay(hg::kRepeatGapMs);
-    sendOnce(code);
+    if (!sendOnce(code)) return false;
   }
+  return true;
 }

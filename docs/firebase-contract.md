@@ -77,6 +77,7 @@ Written once per command the hub handles.
 | `status` | Meaning | App shows |
 |---|---|---|
 | `sent` | OFF code fired | "Command sent" (never "AC off") |
+| `failed` | The hub could not send the saved code | "Hub couldn't send the OFF signal. Teach your remote again" |
 | `no-code` | No OFF code saved | "Teach your remote first" |
 | `unsupported` | Value was not `OFF` | "The hub can only turn the AC off" |
 | `stale` | Command older than 2 minutes when the hub saw it | "Hub was offline; command not sent" |

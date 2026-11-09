@@ -10,7 +10,7 @@ struct Command {
   int64_t requestedAt = 0;
 };
 
-enum class CommandStatus { Sent, NoCode, Unsupported, Stale, Ignore };
+enum class CommandStatus { Sent, Failed, NoCode, Unsupported, Stale, Ignore };
 
 struct CommandDecision {
   CommandStatus status;
