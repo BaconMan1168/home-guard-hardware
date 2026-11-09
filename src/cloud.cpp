@@ -8,6 +8,7 @@
 #include <FirebaseClient.h>
 #include <NetworkClientSecure.h>
 
+#include <map>
 #include <optional>
 
 #include "secrets.h"
@@ -27,6 +28,16 @@ static bool usingRefreshToken = false;
 static constexpr size_t kIdTokenRenewSec = 3000;
 static std::optional<Command> pendingCommand;
 static std::optional<int64_t> pendingLearnRequestAt;
+
+static constexpr size_t kMaxQueuedWrites = 4;
+static constexpr uint32_t kWriteRetryMs = 10000;
+
+struct PendingSet {
+  std::string json;
+  bool due = true;
+  uint32_t retryAtMs = 0;
+};
+static std::map<std::string, PendingSet> pendingSets;
 
 static void logIfError(AsyncResult& result) {
   if (result.isError()) {
@@ -73,9 +84,32 @@ static void switchToRefreshToken() {
   usingRefreshToken = true;
 }
 
+static bool writeQueueFull() { return writeClient.taskCount() >= kMaxQueuedWrites; }
+
+static void onSetResult(AsyncResult& result) {
+  logIfError(result);
+  if (!result.isError()) return;
+  auto it = pendingSets.find(result.uid().c_str());
+  if (it == pendingSets.end()) return;
+  it->second.due = true;
+  it->second.retryAtMs = millis() + kWriteRetryMs;
+}
+
+static void flushSets() {
+  if (!app.ready()) return;
+  for (auto& [relPath, set] : pendingSets) {
+    if (!set.due || static_cast<int32_t>(millis() - set.retryAtMs) < 0) continue;
+    if (writeQueueFull()) return;
+    set.due = false;
+    database.set<object_t>(writeClient, String((basePath + "/" + relPath).c_str()), object_t(String(set.json.c_str())),
+                           onSetResult, String(relPath.c_str()));
+  }
+}
+
 void cloudLoop() {
   app.loop();
   if (!usingRefreshToken && app.ready()) switchToRefreshToken();
+  flushSets();
 
   if (pendingCommand) {
     Command cmd = *pendingCommand;
@@ -98,11 +132,12 @@ void cloudStartStream() {
 }
 
 void cloudSet(const std::string& relPath, const std::string& json) {
-  database.set<object_t>(writeClient, String((basePath + "/" + relPath).c_str()), object_t(String(json.c_str())),
-                         logIfError, "set");
+  pendingSets[relPath] = PendingSet{json, true, millis()};
+  flushSets();
 }
 
 void cloudPush(const std::string& relPath, const std::string& json) {
+  if (!app.ready() || writeQueueFull()) return;
   database.push<object_t>(writeClient, String((basePath + "/" + relPath).c_str()), object_t(String(json.c_str())),
                           logIfError, "push");
 }

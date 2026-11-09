@@ -104,6 +104,10 @@ When its stream (re)connects, the hub skips a `latest` command that `result` alr
 
 `state` moves `listening` → one of `saved` | `timeout` | `rejected` | `interrupted`. `rejected` means a signal arrived but was too short or noisy to trust. `interrupted` means the hub lost power or restarted mid-learn; the hub writes it once it is back online, and nothing was saved. The app should tell the user to keep the hub powered while teaching, and show "Hub restarted; try again" for `interrupted`. `requestedAt` echoes the request being answered.
 
+## Delivery
+
+Hub writes that use `set` (`telemetry`, `remote`, `commands/result`, `learn/status`) are retried until they land, and only the newest value per path is kept, so on a slow or flaky link they can arrive late but not go missing. `temperatureReadings` pushes are best-effort: on a backed-up link the hub skips them rather than queueing, so the history can have gaps.
+
 ## Rules (prototype)
 
 The existing prototype rules from `ac-guard/docs/RUN.md` stay as they are (`auth != null` read/write under `devices/$deviceId`, plus the `temperatureReadings` index). The hub signs in anonymously, like the app. Per-owner rules are a known gap (see the design doc).
