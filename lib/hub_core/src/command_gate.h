@@ -18,5 +18,6 @@ struct CommandDecision {
 };
 
 bool isFresh(int64_t requestedAt, int64_t nowMs);
+bool shouldRememberCommand(int64_t requestedAt, int64_t nowMs);
 CommandDecision decideCommand(const Command& cmd, int64_t lastHandledRequestedAt, int64_t nowMs,
                               const StoredCode& code);

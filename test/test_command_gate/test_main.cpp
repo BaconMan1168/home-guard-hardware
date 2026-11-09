@@ -71,6 +71,13 @@ void test_stale_wins_over_no_code() {
   assertDecision(CommandStatus::Stale, 0, decideCommand({"OFF", kNow - 120001}, 0, kNow, noCode));
 }
 
+void test_past_and_fresh_commands_are_remembered() {
+  TEST_ASSERT_TRUE(shouldRememberCommand(kNow - 120001, kNow));
+  TEST_ASSERT_TRUE(shouldRememberCommand(kNow + 120000, kNow));
+}
+
+void test_far_future_command_is_not_remembered() { TEST_ASSERT_FALSE(shouldRememberCommand(kNow + 120001, kNow)); }
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_new_fresh_off_with_ac_state_sends_three);
@@ -84,5 +91,7 @@ int main() {
   RUN_TEST(test_on_is_unsupported);
   RUN_TEST(test_off_without_code_is_no_code);
   RUN_TEST(test_stale_wins_over_no_code);
+  RUN_TEST(test_past_and_fresh_commands_are_remembered);
+  RUN_TEST(test_far_future_command_is_not_remembered);
   return UNITY_END();
 }

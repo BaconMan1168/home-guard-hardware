@@ -33,8 +33,10 @@ static void onCommand(const Command& cmd) {
   CommandDecision d = decideCommand(cmd, lastCmdAt, nowMs(), code);
   if (d.status == CommandStatus::Ignore) return;
 
-  saveLastCommandAt(cmd.requestedAt);
-  lastCmdAt = cmd.requestedAt;
+  if (shouldRememberCommand(cmd.requestedAt, nowMs())) {
+    saveLastCommandAt(cmd.requestedAt);
+    lastCmdAt = cmd.requestedAt;
+  }
   if (d.status == CommandStatus::Sent) irSend(code, d.sendCount);
   cloudSet("commands/result", commandResultJson(cmd.requestedAt, d.status, nowMs()));
   Serial.printf("Command %s at %lld: %s\n", cmd.value.c_str(), static_cast<long long>(cmd.requestedAt),

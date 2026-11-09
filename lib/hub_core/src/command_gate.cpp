@@ -7,6 +7,10 @@ bool isFresh(int64_t requestedAt, int64_t nowMs) {
   return age <= hg::kCommandFreshnessMs && -age <= hg::kCommandFreshnessMs;
 }
 
+bool shouldRememberCommand(int64_t requestedAt, int64_t nowMs) {
+  return requestedAt - nowMs <= hg::kCommandFreshnessMs;
+}
+
 CommandDecision decideCommand(const Command& cmd, int64_t lastHandledRequestedAt, int64_t nowMs,
                               const StoredCode& code) {
   if (cmd.requestedAt <= lastHandledRequestedAt) return {CommandStatus::Ignore, 0};
