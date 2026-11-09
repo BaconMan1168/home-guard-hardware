@@ -35,4 +35,14 @@ bool saveLastLearnAt(int64_t requestedAt) { return saveInt64(kKeyLastLearnAt, re
 bool loadLearnActive() { return prefs.getBool(kKeyLearnActive, false); }
 bool saveLearnActive(bool active) { return prefs.putBool(kKeyLearnActive, active) == sizeof(bool); }
 
+std::string loadPendingWrite(const std::string& relPath) {
+  return prefs.isKey(relPath.c_str()) ? prefs.getString(relPath.c_str()).c_str() : "";
+}
+
+bool savePendingWrite(const std::string& relPath, const std::string& json) {
+  return prefs.putString(relPath.c_str(), json.c_str()) == json.size();
+}
+
+void clearPendingWrite(const std::string& relPath) { prefs.remove(relPath.c_str()); }
+
 void clearAll() { prefs.clear(); }

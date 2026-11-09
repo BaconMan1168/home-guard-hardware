@@ -11,6 +11,7 @@
 #include <map>
 #include <optional>
 
+#include "code_store.h"
 #include "secrets.h"
 #include "stream_events.h"
 
@@ -33,12 +34,23 @@ static constexpr size_t kMaxQueuedWrites = 4;
 static constexpr uint32_t kWriteRetryMs = 10000;
 static constexpr unsigned long kTlsHandshakeTimeoutSec = 30;
 
+static const char* const kDurablePaths[] = {"commands/result", "learn/status"};
+
 struct PendingSet {
   std::string json;
+  uint32_t seq = 0;
   bool due = true;
   uint32_t retryAtMs = 0;
 };
 static std::map<std::string, PendingSet> pendingSets;
+static uint32_t nextSeq = 1;
+
+static bool isDurable(const std::string& relPath) {
+  for (const char* path : kDurablePaths) {
+    if (relPath == path) return true;
+  }
+  return false;
+}
 
 static void logIfError(AsyncResult& result) {
   if (result.isError()) {
@@ -75,6 +87,11 @@ void cloudBegin(const std::string& deviceId, CloudCallbacks cb) {
   writeSsl.setHandshakeTimeout(kTlsHandshakeTimeoutSec);
   streamSsl.setHandshakeTimeout(kTlsHandshakeTimeoutSec);
 
+  for (const char* path : kDurablePaths) {
+    std::string json = loadPendingWrite(path);
+    if (!json.empty()) pendingSets[path] = PendingSet{json, nextSeq++, true, millis()};
+  }
+
   UserAccount user(FIREBASE_API_KEY);
   signup(writeClient, app, getAuth(user), onAuthResult, "auth");
   app.getApp<RealtimeDatabase>(database);
@@ -91,11 +108,21 @@ static bool writeQueueFull() { return writeClient.taskCount() >= kMaxQueuedWrite
 
 static void onSetResult(AsyncResult& result) {
   logIfError(result);
-  if (!result.isError()) return;
-  auto it = pendingSets.find(result.uid().c_str());
-  if (it == pendingSets.end()) return;
-  it->second.due = true;
-  it->second.retryAtMs = millis() + kWriteRetryMs;
+  bool failed = result.isError();
+  if (!failed && !result.available()) return;
+
+  std::string uid = result.uid().c_str();
+  size_t at = uid.rfind('@');
+  if (at == std::string::npos) return;
+  auto it = pendingSets.find(uid.substr(0, at));
+  if (it == pendingSets.end() || std::to_string(it->second.seq) != uid.substr(at + 1)) return;
+
+  if (failed) {
+    it->second.due = true;
+    it->second.retryAtMs = millis() + kWriteRetryMs;
+  } else if (isDurable(it->first)) {
+    clearPendingWrite(it->first);
+  }
 }
 
 static void flushSets() {
@@ -105,7 +132,7 @@ static void flushSets() {
     if (writeQueueFull()) return;
     set.due = false;
     database.set<object_t>(writeClient, String((basePath + "/" + relPath).c_str()), object_t(String(set.json.c_str())),
-                           onSetResult, String(relPath.c_str()));
+                           onSetResult, String((relPath + "@" + std::to_string(set.seq)).c_str()));
   }
 }
 
@@ -135,7 +162,8 @@ void cloudStartStream() {
 }
 
 void cloudSet(const std::string& relPath, const std::string& json) {
-  pendingSets[relPath] = PendingSet{json, true, millis()};
+  pendingSets[relPath] = PendingSet{json, nextSeq++, true, millis()};
+  if (isDurable(relPath)) savePendingWrite(relPath, json);
   flushSets();
 }
 
