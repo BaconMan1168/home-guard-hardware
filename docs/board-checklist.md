@@ -13,6 +13,7 @@ Before flashing, copy `include/secrets.example.h` to `include/secrets.h` and fil
 5. Reboot the hub: no new `commands/result` is written (the old command is ignored).
 6. Unplug the router for 2 minutes, then plug it back in: the LED double-blinks and then turns solid, and telemetry resumes.
 7. Pull the AHT20 SDA wire while the hub runs: serial logs "Sensor read failed" each minute, and a console `commands/latest` write still gets a `commands/result`. Reconnect it: readings resume.
+8. Leave the hub online for 2 hours: Firebase console > Authentication shows one anonymous user for the hub, not one per hour, and telemetry never stops.
 
 ## Teach remote
 

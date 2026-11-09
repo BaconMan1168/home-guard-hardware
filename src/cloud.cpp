@@ -1,6 +1,7 @@
 #include "cloud.h"
 
 #define ENABLE_USER_AUTH
+#define ENABLE_ID_TOKEN
 #define ENABLE_DATABASE
 
 #include <Arduino.h>
@@ -22,6 +23,8 @@ static RealtimeDatabase database;
 static std::string basePath;
 static CloudCallbacks callbacks;
 static bool streamStarted = false;
+static bool usingRefreshToken = false;
+static constexpr size_t kIdTokenRenewSec = 3000;
 static std::optional<Command> pendingCommand;
 static std::optional<int64_t> pendingLearnRequestAt;
 
@@ -64,8 +67,15 @@ void cloudBegin(const std::string& deviceId, CloudCallbacks cb) {
   database.url(FIREBASE_DATABASE_URL);
 }
 
+static void switchToRefreshToken() {
+  IDToken idToken(FIREBASE_API_KEY, app.getToken(), kIdTokenRenewSec, app.getRefreshToken());
+  initializeApp(writeClient, app, getAuth(idToken), onAuthResult, "auth");
+  usingRefreshToken = true;
+}
+
 void cloudLoop() {
   app.loop();
+  if (!usingRefreshToken && app.ready()) switchToRefreshToken();
 
   if (pendingCommand) {
     Command cmd = *pendingCommand;
