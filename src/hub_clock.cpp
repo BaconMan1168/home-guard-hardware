@@ -10,6 +10,11 @@ void clockBegin() { configTime(0, 0, "pool.ntp.org", "time.google.com"); }
 
 bool clockSynced() { return time(nullptr) > kEarliestValidEpoch; }
 
+void clockSetFromEpochSec(int64_t epochSec) {
+  struct timeval tv = {static_cast<time_t>(epochSec), 0};
+  settimeofday(&tv, nullptr);
+}
+
 int64_t nowMs() {
   struct timeval tv;
   gettimeofday(&tv, nullptr);

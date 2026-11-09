@@ -14,6 +14,7 @@
 #include "code_store.h"
 #include "secrets.h"
 #include "stream_events.h"
+#include "token_time.h"
 
 static NetworkClientSecure writeSsl;
 static NetworkClientSecure streamSsl;
@@ -154,6 +155,11 @@ void cloudLoop() {
 }
 
 bool cloudReady() { return app.ready(); }
+
+std::optional<int64_t> cloudTokenIssuedAtSec() {
+  if (!app.ready()) return std::nullopt;
+  return tokenIssuedAtSec(app.getToken().c_str());
+}
 
 void cloudStartStream() {
   if (streamStarted) return;

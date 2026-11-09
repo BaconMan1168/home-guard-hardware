@@ -175,6 +175,13 @@ void loop() {
   learnLoop();
 
   bool online = wifi && cloudBegun && cloudReady();
+  if (online && !clockSynced()) {
+    std::optional<int64_t> issuedAt = cloudTokenIssuedAtSec();
+    if (issuedAt) {
+      clockSetFromEpochSec(*issuedAt);
+      Serial.println("NTP not synced yet; clock set from Firebase sign-in time");
+    }
+  }
   HubMode mode = online ? HubMode::Online : HubMode::Connecting;
   if (setupNow == SetupState::AwaitingSetup) mode = HubMode::AwaitingSetup;
   if (session.state() == LearnState::Listening) mode = HubMode::Learning;
