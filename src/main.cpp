@@ -95,13 +95,18 @@ static void learnLoop() {
 
 static void reportTemperature(bool online) {
   float t = 0;
-  if (!sensorRead(t) || !isPlausibleTemperature(t)) {
-    Serial.println("Sensor read failed or implausible; skipping this cycle");
-    return;
+  bool readOk = sensorRead(t) && isPlausibleTemperature(t);
+  if (readOk) {
+    Serial.printf("Temperature %.2f C\n", t);
+  } else {
+    Serial.println("Sensor read failed or implausible; sending telemetry without temperature");
   }
-  Serial.printf("Temperature %.2f C\n", t);
   if (!online) return;
   int64_t now = nowMs();
+  if (!readOk) {
+    cloudSet("telemetry", telemetryWithoutTemperatureJson(now));
+    return;
+  }
   cloudSet("telemetry", telemetryJson(t, now));
   cloudPush("temperatureReadings", readingJson(t, now));
 }

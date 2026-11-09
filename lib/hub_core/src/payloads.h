@@ -9,6 +9,7 @@
 
 bool isPlausibleTemperature(float c);
 std::string telemetryJson(float c, int64_t nowMs);
+std::string telemetryWithoutTemperatureJson(int64_t nowMs);
 std::string readingJson(float c, int64_t nowMs);
 std::string remoteJson(const StoredCode& code);
 const char* commandStatusName(CommandStatus status);

@@ -21,6 +21,12 @@ std::string telemetryJson(float c, int64_t nowMs) {
   return toJson(doc);
 }
 
+std::string telemetryWithoutTemperatureJson(int64_t nowMs) {
+  JsonDocument doc;
+  doc["lastSeenAt"] = nowMs;
+  return toJson(doc);
+}
+
 std::string readingJson(float c, int64_t nowMs) {
   JsonDocument doc;
   doc["timestamp"] = nowMs;

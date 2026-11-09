@@ -23,6 +23,12 @@ void test_telemetry_rounds_to_two_decimals() {
   TEST_ASSERT_EQUAL(2, doc.as<JsonObjectConst>().size());
 }
 
+void test_telemetry_without_temperature() {
+  JsonDocument doc = parse(telemetryWithoutTemperatureJson(1789262500000LL));
+  TEST_ASSERT_TRUE(doc["lastSeenAt"].as<int64_t>() == 1789262500000LL);
+  TEST_ASSERT_EQUAL(1, doc.as<JsonObjectConst>().size());
+}
+
 void test_reading_fields() {
   JsonDocument doc = parse(readingJson(22.4449f, 1789262500000LL));
   TEST_ASSERT_TRUE(doc["timestamp"].as<int64_t>() == 1789262500000LL);
@@ -87,6 +93,7 @@ void test_plausible_temperature_bounds() {
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_telemetry_rounds_to_two_decimals);
+  RUN_TEST(test_telemetry_without_temperature);
   RUN_TEST(test_reading_fields);
   RUN_TEST(test_remote_not_learned);
   RUN_TEST(test_remote_learned);

@@ -34,6 +34,8 @@ Written every 60 s, overwriting.
 { "temperatureCelsius": 22.4, "lastSeenAt": 1789262500000 }
 ```
 
+If the sensor read fails or is implausible, the hub still writes `telemetry` with only `lastSeenAt` (no `temperatureCelsius`) and pushes no `temperatureReadings` child. So the app keeps showing the hub online, and should show a sensor problem instead of a temperature.
+
 The hub never writes `powerState` or `powerStateUpdatedAt`. It cannot observe whether the AC is on.
 
 ### `temperatureReadings/{pushId}` (hub → app, existing)
