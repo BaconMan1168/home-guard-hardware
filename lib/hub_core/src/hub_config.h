@@ -20,6 +20,10 @@ constexpr uint16_t kNoiseMaxRawLen = 7;
 constexpr uint16_t kMinFrameRawLen = 24;
 constexpr uint32_t kFactoryResetHoldMs = 10000;
 constexpr uint32_t kWifiRetryMs = 60000;
+constexpr uint32_t kHeapCheckIntervalMs = 60000;
+constexpr uint32_t kMinFreeHeapBlockBytes = 20000;
+constexpr uint8_t kLowHeapChecksBeforeRestart = 3;
+constexpr uint32_t kLoopWatchdogMs = 300000;
 constexpr const char* kProofOfPossession = "homeguard-pop-v1";
 
 }  // namespace hg

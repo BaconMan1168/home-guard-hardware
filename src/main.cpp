@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <esp_mac.h>
+#include <esp_task_wdt.h>
 
 #include <string>
 
@@ -13,6 +14,7 @@
 #include "ir_learner.h"
 #include "ir_sender.h"
 #include "learn_session.h"
+#include "low_heap_watch.h"
 #include "payloads.h"
 #include "provisioning.h"
 #include "status_led.h"
@@ -28,6 +30,8 @@ static std::string deviceId;
 static bool cloudBegun = false;
 static bool started = false;
 static uint32_t lastTelemetryMs = 0;
+static LowHeapWatch heapWatch(hg::kMinFreeHeapBlockBytes, hg::kLowHeapChecksBeforeRestart);
+static uint32_t lastHeapCheckMs = 0;
 
 static void onCommand(const Command& cmd) {
   CommandDecision d = decideCommand(cmd, lastCmdAt, nowMs(), code);
@@ -121,6 +125,17 @@ static void reportTemperature(bool online) {
   cloudPush("temperatureReadings", readingJson(t, now));
 }
 
+static void heapLoop() {
+  if (millis() - lastHeapCheckMs < hg::kHeapCheckIntervalMs) return;
+  lastHeapCheckMs = millis();
+  uint32_t largestBlock = ESP.getMaxAllocHeap();
+  Serial.printf("Heap free %u, largest block %u\n", ESP.getFreeHeap(), largestBlock);
+  if (heapWatch.check(largestBlock) && session.state() != LearnState::Listening) {
+    Serial.println("Memory too low for a new connection; restarting");
+    ESP.restart();
+  }
+}
+
 static void factoryReset() {
   Serial.println("Factory reset");
   uint32_t startMs = millis();
@@ -159,6 +174,10 @@ void setup() {
 
   provisioningBegin(bleNameFromMac(mac));
   clockBegin();
+
+  esp_task_wdt_config_t watchdog = {hg::kLoopWatchdogMs, 1 << 0, true};
+  esp_task_wdt_reconfigure(&watchdog);
+  enableLoopWDT();
 }
 
 void loop() {
@@ -173,6 +192,7 @@ void loop() {
   }
   if (cloudBegun) cloudLoop();
   learnLoop();
+  heapLoop();
 
   bool online = wifi && cloudBegun && cloudReady();
   if (online && !clockSynced()) {
