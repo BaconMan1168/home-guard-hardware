@@ -53,6 +53,7 @@ static void onLearnRequest(int64_t requestedAt) {
   if (!shouldStartLearn(requestedAt, lastLearnAt, nowMs())) return;
 
   saveLastLearnAt(requestedAt);
+  saveLearnActive(true);
   lastLearnAt = requestedAt;
   session.start(requestedAt, millis());
   irLearnerEnable(true);
@@ -71,8 +72,16 @@ static void finishLearn(LearnState state, StoredCode& candidate) {
     }
   }
   reportLearnStatus(state);
+  saveLearnActive(false);
   irLearnerEnable(false);
   session.reset();
+}
+
+static void reportInterruptedLearn() {
+  if (!loadLearnActive()) return;
+  cloudSet("learn/status", learnStatusJson(lastLearnAt, LearnState::Interrupted, nowMs()));
+  saveLearnActive(false);
+  Serial.println("Learn interrupted by restart");
 }
 
 static void learnLoop() {
@@ -159,6 +168,7 @@ void loop() {
 
   if (!started && online && clockSynced()) {
     started = true;
+    reportInterruptedLearn();
     cloudStartStream();
     cloudSet("remote", remoteJson(code));
     lastTelemetryMs = millis();

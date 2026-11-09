@@ -15,6 +15,8 @@ const char* learnStateName(LearnState state) {
       return "timeout";
     case LearnState::Rejected:
       return "rejected";
+    case LearnState::Interrupted:
+      return "interrupted";
   }
   return "idle";
 }

@@ -4,7 +4,7 @@
 
 #include "stored_code.h"
 
-enum class LearnState { Idle, Listening, Saved, Timeout, Rejected };
+enum class LearnState { Idle, Listening, Saved, Timeout, Rejected, Interrupted };
 
 const char* learnStateName(LearnState state);
 

@@ -11,4 +11,6 @@ int64_t loadLastCommandAt();
 bool saveLastCommandAt(int64_t requestedAt);
 int64_t loadLastLearnAt();
 bool saveLastLearnAt(int64_t requestedAt);
+bool loadLearnActive();
+bool saveLearnActive(bool active);
 void clearAll();

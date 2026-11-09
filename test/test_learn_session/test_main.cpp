@@ -99,6 +99,7 @@ void test_state_names() {
   TEST_ASSERT_EQUAL_STRING("saved", learnStateName(LearnState::Saved));
   TEST_ASSERT_EQUAL_STRING("timeout", learnStateName(LearnState::Timeout));
   TEST_ASSERT_EQUAL_STRING("rejected", learnStateName(LearnState::Rejected));
+  TEST_ASSERT_EQUAL_STRING("interrupted", learnStateName(LearnState::Interrupted));
 }
 
 int main() {

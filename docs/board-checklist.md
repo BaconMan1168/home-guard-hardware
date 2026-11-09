@@ -22,6 +22,8 @@ Before flashing, copy `include/secrets.example.h` to `include/secrets.h` and fil
 3. Repeat the request and wait 30 s without pressing anything: `timeout`, and `remote` is unchanged.
 4. Reboot: no new `listening` (the leftover request is ignored), and `remote` still shows the saved code.
 5. With the AC on, set `commands/latest` to OFF (as in Hub Basics step 4): the AC turns off and `commands/result.status` is `"sent"`. A phone camera shows the IR LEDs flickering 3 times for `ac-state` and once otherwise.
+6. Start a learn request, and while `learn/status` is `listening`, unplug the hub. Plug it back in: once online, `learn/status.state` becomes `interrupted` and `remote` is unchanged.
+7. Reboot the hub: `commands/result` keeps its old value (the answered command is skipped, not rewritten as `stale`).
 
 ## Bluetooth setup and reset
 

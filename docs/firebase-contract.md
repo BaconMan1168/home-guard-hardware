@@ -100,7 +100,7 @@ When its stream (re)connects, the hub skips a `latest` command that `result` alr
 { "requestedAt": 1789262500000, "state": "listening", "updatedAt": 1789262500400 }
 ```
 
-`state` moves `listening` → one of `saved` | `timeout` | `rejected`. `rejected` means a signal arrived but was too short or noisy to trust. `requestedAt` echoes the request being answered.
+`state` moves `listening` → one of `saved` | `timeout` | `rejected` | `interrupted`. `rejected` means a signal arrived but was too short or noisy to trust. `interrupted` means the hub lost power or restarted mid-learn; the hub writes it once it is back online, and nothing was saved. The app should tell the user to keep the hub powered while teaching, and show "Hub restarted; try again" for `interrupted`. `requestedAt` echoes the request being answered.
 
 ## Rules (prototype)
 
