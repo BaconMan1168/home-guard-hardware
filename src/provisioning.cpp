@@ -10,6 +10,7 @@
 static std::string serviceName;
 static std::atomic<bool> provisioning{false};
 static std::atomic<bool> awaitingCredentials{false};
+static uint32_t lastWifiAttemptMs = 0;
 
 static void onProvisioningEvent(arduino_event_t* event) {
   switch (event->event_id) {
@@ -46,6 +47,17 @@ void provisioningBegin(const std::string& bleName) {
   WiFi.setAutoReconnect(true);
   WiFiProv.beginProvision(NETWORK_PROV_SCHEME_BLE, NETWORK_PROV_SCHEME_HANDLER_FREE_BTDM, NETWORK_PROV_SECURITY_1,
                           hg::kProofOfPossession, serviceName.c_str(), nullptr, nullptr, false);
+}
+
+void provisioningLoop() {
+  if (provisioning || WiFi.isConnected()) {
+    lastWifiAttemptMs = millis();
+    return;
+  }
+  if (millis() - lastWifiAttemptMs < hg::kWifiRetryMs) return;
+  lastWifiAttemptMs = millis();
+  Serial.println("Wi-Fi still down; retrying");
+  WiFi.reconnect();
 }
 
 SetupState setupState() {

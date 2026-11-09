@@ -139,6 +139,7 @@ void setup() {
 void loop() {
   if (resetHold.update(digitalRead(hg::kPinBootButton) == LOW, millis())) factoryReset();
 
+  provisioningLoop();
   SetupState setupNow = setupState();
   bool wifi = setupNow == SetupState::Connected;
   if (wifi && !cloudBegun) {
