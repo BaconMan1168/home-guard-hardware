@@ -31,6 +31,7 @@ static std::optional<int64_t> pendingLearnRequestAt;
 
 static constexpr size_t kMaxQueuedWrites = 4;
 static constexpr uint32_t kWriteRetryMs = 10000;
+static constexpr unsigned long kTlsHandshakeTimeoutSec = 30;
 
 struct PendingSet {
   std::string json;
@@ -71,6 +72,8 @@ void cloudBegin(const std::string& deviceId, CloudCallbacks cb) {
   callbacks = std::move(cb);
   writeSsl.setInsecure();
   streamSsl.setInsecure();
+  writeSsl.setHandshakeTimeout(kTlsHandshakeTimeoutSec);
+  streamSsl.setHandshakeTimeout(kTlsHandshakeTimeoutSec);
 
   UserAccount user(FIREBASE_API_KEY);
   signup(writeClient, app, getAuth(user), onAuthResult, "auth");
