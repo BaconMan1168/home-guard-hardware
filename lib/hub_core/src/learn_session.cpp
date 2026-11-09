@@ -19,9 +19,9 @@ const char* learnStateName(LearnState state) {
   return "idle";
 }
 
-CodeKind classifyCode(bool decoded, bool hasAcState) {
+CodeKind classifyCode(bool decoded, bool hasAcState, bool hasPowerToggle) {
   if (!decoded) return CodeKind::Raw;
-  return hasAcState ? CodeKind::AcState : CodeKind::Toggle;
+  return hasAcState && !hasPowerToggle ? CodeKind::AcState : CodeKind::Toggle;
 }
 
 bool shouldStartLearn(int64_t requestedAt, int64_t lastLearnAt, int64_t nowMs) {

@@ -83,10 +83,14 @@ void test_reset_returns_to_idle() {
 }
 
 void test_classify() {
-  TEST_ASSERT_EQUAL(static_cast<int>(CodeKind::AcState), static_cast<int>(classifyCode(true, true)));
-  TEST_ASSERT_EQUAL(static_cast<int>(CodeKind::Toggle), static_cast<int>(classifyCode(true, false)));
-  TEST_ASSERT_EQUAL(static_cast<int>(CodeKind::Raw), static_cast<int>(classifyCode(false, false)));
-  TEST_ASSERT_EQUAL(static_cast<int>(CodeKind::Raw), static_cast<int>(classifyCode(false, true)));
+  TEST_ASSERT_EQUAL(static_cast<int>(CodeKind::AcState), static_cast<int>(classifyCode(true, true, false)));
+  TEST_ASSERT_EQUAL(static_cast<int>(CodeKind::Toggle), static_cast<int>(classifyCode(true, false, false)));
+  TEST_ASSERT_EQUAL(static_cast<int>(CodeKind::Raw), static_cast<int>(classifyCode(false, false, false)));
+  TEST_ASSERT_EQUAL(static_cast<int>(CodeKind::Raw), static_cast<int>(classifyCode(false, true, false)));
+}
+
+void test_ac_state_with_power_toggle_is_toggle() {
+  TEST_ASSERT_EQUAL(static_cast<int>(CodeKind::Toggle), static_cast<int>(classifyCode(true, true, true)));
 }
 
 void test_state_names() {
@@ -111,6 +115,7 @@ int main() {
   RUN_TEST(test_new_request_restarts_session);
   RUN_TEST(test_reset_returns_to_idle);
   RUN_TEST(test_classify);
+  RUN_TEST(test_ac_state_with_power_toggle_is_toggle);
   RUN_TEST(test_state_names);
   return UNITY_END();
 }

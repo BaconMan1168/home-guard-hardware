@@ -55,7 +55,7 @@ Describes the saved OFF code. Written at boot (once online), after every learn a
 | Field | Meaning |
 |---|---|
 | `learned` | `false` until an OFF code is saved. The app shows "Teach your remote" while this is `false`. |
-| `kind` | `"ac-state"`: the library recognised a stateful AC protocol (safe to repeat). `"toggle"`: a short code that may flip power. `"raw"`: unrecognised, stored as raw timings. |
+| `kind` | `"ac-state"`: the library recognised a stateful AC protocol (safe to repeat). `"toggle"`: a code that may flip power (short codes, and AC protocols with a power-toggle bit: DAIKIN128, HITACHI_AC1, WHIRLPOOL_AC, YORK). `"raw"`: unrecognised, stored as raw timings. |
 | `protocol` | Library protocol name, or `"UNKNOWN"` for raw. Display/debug only. |
 
 ### `commands/latest` (app → hub, existing)

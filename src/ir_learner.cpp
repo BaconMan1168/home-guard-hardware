@@ -23,30 +23,38 @@ void irLearnerEnable(bool on) {
   }
 }
 
+static bool hasPowerToggleBit(decode_type_t protocol) {
+  switch (protocol) {
+    case DAIKIN128:
+    case HITACHI_AC1:
+    case WHIRLPOOL_AC:
+    case YORK:
+      return true;
+    default:
+      return false;
+  }
+}
+
 bool irLearnerPoll(FrameInfo& frame, StoredCode& code) {
   if (!irrecv.decode(&results)) return false;
 
   frame = {results.rawlen, results.overflow};
   bool decoded = results.decode_type != UNKNOWN;
   code = StoredCode{};
-  code.kind = classifyCode(decoded, hasACState(results.decode_type));
+  bool stateful = hasACState(results.decode_type);
+  code.kind = classifyCode(decoded, stateful, hasPowerToggleBit(results.decode_type));
   code.protocol = results.decode_type;
   code.protocolName = typeToString(results.decode_type).c_str();
 
-  switch (code.kind) {
-    case CodeKind::AcState:
-      code.state.assign(results.state, results.state + results.bits / 8);
-      break;
-    case CodeKind::Toggle:
-      code.value = results.value;
-      code.bits = results.bits;
-      break;
-    case CodeKind::Raw: {
-      uint16_t* raw = resultToRawArray(&results);
-      code.raw.assign(raw, raw + getCorrectedRawLength(&results));
-      delete[] raw;
-      break;
-    }
+  if (code.kind == CodeKind::Raw) {
+    uint16_t* raw = resultToRawArray(&results);
+    code.raw.assign(raw, raw + getCorrectedRawLength(&results));
+    delete[] raw;
+  } else if (stateful) {
+    code.state.assign(results.state, results.state + results.bits / 8);
+  } else {
+    code.value = results.value;
+    code.bits = results.bits;
   }
   return true;
 }

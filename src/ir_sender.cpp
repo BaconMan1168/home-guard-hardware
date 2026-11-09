@@ -12,16 +12,12 @@ void irSenderBegin() { irsend.begin(); }
 
 static void sendOnce(const StoredCode& code) {
   decode_type_t protocol = static_cast<decode_type_t>(code.protocol);
-  switch (code.kind) {
-    case CodeKind::AcState:
-      irsend.send(protocol, code.state.data(), static_cast<uint16_t>(code.state.size()));
-      break;
-    case CodeKind::Toggle:
-      irsend.send(protocol, code.value, code.bits);
-      break;
-    case CodeKind::Raw:
-      irsend.sendRaw(code.raw.data(), static_cast<uint16_t>(code.raw.size()), 38);
-      break;
+  if (code.kind == CodeKind::Raw) {
+    irsend.sendRaw(code.raw.data(), static_cast<uint16_t>(code.raw.size()), 38);
+  } else if (!code.state.empty()) {
+    irsend.send(protocol, code.state.data(), static_cast<uint16_t>(code.state.size()));
+  } else {
+    irsend.send(protocol, code.value, code.bits);
   }
 }
 

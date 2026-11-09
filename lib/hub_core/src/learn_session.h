@@ -13,7 +13,7 @@ struct FrameInfo {
   bool overflow;
 };
 
-CodeKind classifyCode(bool decoded, bool hasAcState);
+CodeKind classifyCode(bool decoded, bool hasAcState, bool hasPowerToggle);
 bool shouldStartLearn(int64_t requestedAt, int64_t lastLearnAt, int64_t nowMs);
 
 class LearnSession {
