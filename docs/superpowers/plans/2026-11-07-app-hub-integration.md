@@ -44,11 +44,13 @@
   - Say "Command sent", never "AC off".
   - Result messages, exactly:
     - `sent`: "Command sent"
+    - `failed`: "Hub couldn't send the OFF signal. Teach your remote again"
     - `no-code`: "Teach your remote first"
     - `unsupported`: "The hub can only turn the AC off"
     - `stale`: "Hub was offline; command not sent"
   - The feature is called **Teach remote** everywhere, never "calibrate".
-  - Listening copy: "Point your remote at the hub and press OFF."
+  - Listening copy: "Point your remote at the hub and press OFF. Keep the hub plugged in until it's saved."
+- **Sensor failure:** a `telemetry` with `lastSeenAt` but no `temperatureCelsius` means the hub is online and its temperature sensor failed. Show the hub as online with "Temperature sensor not responding", and never treat the missing reading as a temperature.
 - **Demo mode** (no Firebase env values, `getFirebaseMode() === 'mock'`) must run every new flow without hardware.
 - **Testable modules:** files in `src/lib/` use `import type` only, apart from `src/lib/ac-device.ts` importing `@/lib/hub`. Tests copy the `load()` helper from `tests/stove-detection.test.cjs` lines 1–23 verbatim; it injects `require` fakes and a fixed `Date`.
 - **Platforms and dependencies:** Add hub has to work on iOS; Android must still build. The only new dependency is the provisioning library. Don't touch unrelated code, labels or styling.
@@ -81,9 +83,9 @@
   ```ts
   export type RemoteKind = 'ac-state' | 'toggle' | 'raw';
   export type HubRemote = { learned: boolean; learnedAt: number | null; kind: RemoteKind | null; protocol: string | null };
-  export type CommandResultStatus = 'sent' | 'no-code' | 'unsupported' | 'stale';
+  export type CommandResultStatus = 'sent' | 'failed' | 'no-code' | 'unsupported' | 'stale';
   export type CommandResult = { requestedAt: number; status: CommandResultStatus; handledAt: number };
-  export type LearnState = 'listening' | 'saved' | 'timeout' | 'rejected';
+  export type LearnState = 'listening' | 'saved' | 'timeout' | 'rejected' | 'interrupted';
   export type LearnStatus = { requestedAt: number; state: LearnState; updatedAt: number };
   export type HubCandidate = { name: string; deviceId: string };
   export type WifiNetwork = { ssid: string; rssi: number; secured: boolean };
@@ -110,7 +112,7 @@
   export function parseLearnStatus(value: unknown): LearnStatus | null;
   export const COMMAND_RESULT_MESSAGES: Record<CommandResultStatus, string>;
   export function describeLastCommand(command: DeviceCommand | null, result: CommandResult | null): string;
-  export type LearnPhase = 'waiting' | 'listening' | 'saved' | 'timeout' | 'rejected' | 'no-response';
+  export type LearnPhase = 'waiting' | 'listening' | 'saved' | 'timeout' | 'rejected' | 'interrupted' | 'no-response';
   export const LEARN_PHASE_MESSAGES: Record<LearnPhase, string>;
   export function getLearnPhase(input: { requestBefore: number | null; currentRequest: number | null; status: LearnStatus | null; attemptStartedAt: number; now: number }): LearnPhase;
   export type ProvisionFailure = 'wrong-password' | 'network-not-found' | 'disconnected' | 'unknown';
@@ -170,7 +172,7 @@ test('hub data parsers ignore malformed values and treat unknown kinds as raw', 
 });
 
 test('command results map to the contract messages', () => {
-  assert.deepEqual({ ...hub.COMMAND_RESULT_MESSAGES }, { sent: 'Command sent', 'no-code': 'Teach your remote first', unsupported: 'The hub can only turn the AC off', stale: 'Hub was offline; command not sent' });
+  assert.deepEqual({ ...hub.COMMAND_RESULT_MESSAGES }, { sent: 'Command sent', failed: "Hub couldn't send the OFF signal. Teach your remote again", 'no-code': 'Teach your remote first', unsupported: 'The hub can only turn the AC off', stale: 'Hub was offline; command not sent' });
   const command = { value: 'OFF', requestedAt: 100, source: 'app' };
   assert.equal(hub.describeLastCommand(null, null), 'No command');
   assert.equal(hub.describeLastCommand(command, null), 'Waiting for the hub');
@@ -183,13 +185,13 @@ test('learn phase follows learn/status for the current request only', () => {
   const phase = (o) => hub.getLearnPhase({ requestBefore: 50, currentRequest: 100, status: null, attemptStartedAt: NOW, now: NOW + 1_000, ...o });
   assert.equal(phase({}), 'waiting');
   assert.equal(phase({ status: s(100, 'listening') }), 'listening');
-  for (const state of ['saved', 'timeout', 'rejected']) assert.equal(phase({ status: s(100, state), now: NOW + 120_000 }), state);
+  for (const state of ['saved', 'timeout', 'rejected', 'interrupted']) assert.equal(phase({ status: s(100, state), now: NOW + 120_000 }), state);
   assert.equal(phase({ currentRequest: 50, status: s(50, 'saved') }), 'waiting'); // previous attempt, new request not seen yet
   assert.equal(phase({ status: s(50, 'saved') }), 'waiting');                     // previous attempt's status
   assert.equal(phase({ now: NOW + 15_001 }), 'no-response');
   assert.equal(phase({ status: s(100, 'listening'), now: NOW + 45_000 }), 'listening');
   assert.equal(phase({ status: s(100, 'listening'), now: NOW + 45_001 }), 'no-response');
-  assert.equal(hub.LEARN_PHASE_MESSAGES.listening, 'Point your remote at the hub and press OFF.');
+  assert.equal(hub.LEARN_PHASE_MESSAGES.listening, "Point your remote at the hub and press OFF. Keep the hub plugged in until it's saved.");
 });
 
 test('provisioning errors are classified for the Wi-Fi step', () => {
@@ -241,6 +243,7 @@ These rules are not fully fixed by the tests:
   - saved: "Remote saved."
   - timeout: "We didn't hear your remote. Try again."
   - rejected: "The signal was too short or unclear. Try again."
+  - interrupted: "The hub restarted before it saved your remote. Keep it plugged in, then try again."
   - no-response: "The hub didn't answer. Check it's plugged in and online, then try again."
 - Copy for `PROVISION_FAILURE_MESSAGES`:
   - wrong-password: "That Wi-Fi password didn't work. Check it and try again."
