@@ -66,4 +66,4 @@ SetupState setupState() {
   return SetupState::Connected;
 }
 
-void wipeWifiCredentials() { WiFi.disconnect(true, true, 1000); }
+void wipeWifiCredentials() { WiFi.eraseAP(); }
