@@ -45,6 +45,7 @@
   - Result messages, exactly:
     - `sent`: "Command sent"
     - `failed`: "Hub couldn't send the OFF signal. Teach your remote again"
+    - `interrupted`: "Hub restarted while sending; check the AC"
     - `no-code`: "Teach your remote first"
     - `unsupported`: "The hub can only turn the AC off"
     - `stale`: "Hub was offline; command not sent"
@@ -83,7 +84,7 @@
   ```ts
   export type RemoteKind = 'ac-state' | 'toggle' | 'raw';
   export type HubRemote = { learned: boolean; learnedAt: number | null; kind: RemoteKind | null; protocol: string | null };
-  export type CommandResultStatus = 'sent' | 'failed' | 'no-code' | 'unsupported' | 'stale';
+  export type CommandResultStatus = 'sent' | 'failed' | 'interrupted' | 'no-code' | 'unsupported' | 'stale';
   export type CommandResult = { requestedAt: number; status: CommandResultStatus; handledAt: number };
   export type LearnState = 'listening' | 'saved' | 'timeout' | 'rejected' | 'interrupted';
   export type LearnStatus = { requestedAt: number; state: LearnState; updatedAt: number };
@@ -172,7 +173,7 @@ test('hub data parsers ignore malformed values and treat unknown kinds as raw', 
 });
 
 test('command results map to the contract messages', () => {
-  assert.deepEqual({ ...hub.COMMAND_RESULT_MESSAGES }, { sent: 'Command sent', failed: "Hub couldn't send the OFF signal. Teach your remote again", 'no-code': 'Teach your remote first', unsupported: 'The hub can only turn the AC off', stale: 'Hub was offline; command not sent' });
+  assert.deepEqual({ ...hub.COMMAND_RESULT_MESSAGES }, { sent: 'Command sent', failed: "Hub couldn't send the OFF signal. Teach your remote again", interrupted: 'Hub restarted while sending; check the AC', 'no-code': 'Teach your remote first', unsupported: 'The hub can only turn the AC off', stale: 'Hub was offline; command not sent' });
   const command = { value: 'OFF', requestedAt: 100, source: 'app' };
   assert.equal(hub.describeLastCommand(null, null), 'No command');
   assert.equal(hub.describeLastCommand(command, null), 'Waiting for the hub');

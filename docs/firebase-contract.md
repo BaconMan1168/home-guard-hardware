@@ -80,6 +80,7 @@ Written once per command the hub handles.
 |---|---|---|
 | `sent` | OFF code fired | "Command sent" (never "AC off") |
 | `failed` | The hub could not send the saved code | "Hub couldn't send the OFF signal. Teach your remote again" |
+| `interrupted` | The hub lost power or restarted while handling this command, so the OFF code may or may not have fired | "Hub restarted while sending; check the AC" |
 | `no-code` | No OFF code saved | "Teach your remote first" |
 | `unsupported` | Value was not `OFF` | "The hub can only turn the AC off" |
 | `stale` | Command older than 2 minutes when the hub saw it | "Hub was offline; command not sent" |
@@ -106,7 +107,7 @@ When its stream (re)connects, the hub skips a `latest` command that `result` alr
 
 ## Delivery
 
-Hub writes that use `set` (`telemetry`, `remote`, `commands/result`, `learn/status`) are retried until they land, and only the newest value per path is kept, so on a slow or flaky link they can arrive late but not go missing. `temperatureReadings` pushes are best-effort: on a backed-up link the hub skips them rather than queueing, so the history can have gaps.
+Hub writes that use `set` (`telemetry`, `remote`, `commands/result`, `learn/status`) are retried until they land, and only the newest value per path is kept, so on a slow or flaky link they can arrive late but not go missing. `commands/result` and `learn/status` are also kept in the hub's flash until Firebase confirms them, so they survive a power cut and are sent after the reboot. `temperatureReadings` pushes are best-effort: on a backed-up link the hub skips them rather than queueing, so the history can have gaps.
 
 ## Rules (prototype)
 

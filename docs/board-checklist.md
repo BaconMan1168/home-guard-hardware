@@ -15,6 +15,10 @@ Before flashing, copy `include/secrets.example.h` to `include/secrets.h` and fil
 7. Pull the AHT20 SDA wire while the hub runs: serial logs "Sensor read failed" each minute, `telemetry` keeps updating `lastSeenAt` with no `temperatureCelsius`, and a console `commands/latest` write still gets a `commands/result`. Reconnect it: readings resume.
 8. Leave the hub online for 2 hours: Firebase console > Authentication shows one anonymous user for the hub, not one per hour, and telemetry never stops.
 9. Put the hub on a very slow link (a phone hotspot with one bar, or a router speed limit of ~64 kbit/s) for 10 minutes, and drop it to nothing for 30 s a few times. Send OFF and a learn request during it: each still gets its `commands/result` / `learn/status` (late is fine, missing is not), the hub never restarts, and telemetry resumes at full rate once the link recovers.
+10. Block NTP at the router (UDP port 123) and reboot the hub: serial prints "clock set from Firebase sign-in time", and telemetry `lastSeenAt` is within a few seconds of real time.
+11. Unplug the hub within a second of writing `commands/latest` (OFF). Plug it back in: `commands/result` ends up as `sent` or `interrupted` for that `requestedAt`, never missing, and the AC never gets OFF twice.
+12. With Wi-Fi active, send OFF 10 times in a row (a new `requestedAt` each time) on the real power supply: serial never shows "Restarted after a brownout". If it does, add the capacitor in the design doc's hardware list (item 4).
+13. Soak for 48 hours: the hub stays online, and the "largest block" in the once-a-minute serial "Heap free" line never trends down. Note the lowest value. If it's near 20000, lower `kMinFreeHeapBlockBytes` before shipping so the hub doesn't restart needlessly.
 
 ## Teach remote
 
