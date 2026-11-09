@@ -66,6 +66,8 @@ void test_command_result() {
   TEST_ASSERT_EQUAL_STRING("no-code", parse(commandResultJson(1, CommandStatus::NoCode, 2))["status"].as<const char*>());
   TEST_ASSERT_EQUAL_STRING("stale", parse(commandResultJson(1, CommandStatus::Stale, 2))["status"].as<const char*>());
   TEST_ASSERT_EQUAL_STRING("failed", parse(commandResultJson(1, CommandStatus::Failed, 2))["status"].as<const char*>());
+  TEST_ASSERT_EQUAL_STRING("interrupted",
+                           parse(commandResultJson(1, CommandStatus::Interrupted, 2))["status"].as<const char*>());
   TEST_ASSERT_EQUAL_STRING("unsupported",
                            parse(commandResultJson(1, CommandStatus::Unsupported, 2))["status"].as<const char*>());
 }

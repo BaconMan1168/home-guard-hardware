@@ -33,6 +33,7 @@ static void onCommand(const Command& cmd) {
   CommandDecision d = decideCommand(cmd, lastCmdAt, nowMs(), code);
   if (d.status == CommandStatus::Ignore) return;
 
+  saveCommandInFlight(cmd.requestedAt);
   if (shouldRememberCommand(cmd.requestedAt, nowMs())) {
     saveLastCommandAt(cmd.requestedAt);
     lastCmdAt = cmd.requestedAt;
@@ -40,8 +41,17 @@ static void onCommand(const Command& cmd) {
   CommandStatus status = d.status;
   if (status == CommandStatus::Sent && !irSend(code, d.sendCount)) status = CommandStatus::Failed;
   cloudSet("commands/result", commandResultJson(cmd.requestedAt, status, nowMs()));
+  saveCommandInFlight(0);
   Serial.printf("Command %s at %lld: %s\n", cmd.value.c_str(), static_cast<long long>(cmd.requestedAt),
                 commandStatusName(status));
+}
+
+static void reportInterruptedCommand() {
+  int64_t requestedAt = loadCommandInFlight();
+  if (requestedAt == 0) return;
+  cloudSet("commands/result", commandResultJson(requestedAt, CommandStatus::Interrupted, nowMs()));
+  saveCommandInFlight(0);
+  Serial.println("Command interrupted by restart");
 }
 
 static void reportLearnStatus(LearnState state) {
@@ -173,6 +183,7 @@ void loop() {
 
   if (!started && online && clockSynced()) {
     started = true;
+    reportInterruptedCommand();
     reportInterruptedLearn();
     cloudStartStream();
     cloudSet("remote", remoteJson(code));

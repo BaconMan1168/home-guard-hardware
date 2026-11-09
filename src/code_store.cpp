@@ -7,6 +7,7 @@ static const char* kKeyCode = "code";
 static const char* kKeyLastCmdAt = "lastCmdAt";
 static const char* kKeyLastLearnAt = "lastLearnAt";
 static const char* kKeyLearnActive = "learnActive";
+static const char* kKeyCmdInFlight = "cmdInFlight";
 
 void storeBegin() { prefs.begin("hg", false); }
 
@@ -32,6 +33,8 @@ int64_t loadLastCommandAt() { return loadInt64(kKeyLastCmdAt); }
 bool saveLastCommandAt(int64_t requestedAt) { return saveInt64(kKeyLastCmdAt, requestedAt); }
 int64_t loadLastLearnAt() { return loadInt64(kKeyLastLearnAt); }
 bool saveLastLearnAt(int64_t requestedAt) { return saveInt64(kKeyLastLearnAt, requestedAt); }
+int64_t loadCommandInFlight() { return loadInt64(kKeyCmdInFlight); }
+bool saveCommandInFlight(int64_t requestedAt) { return saveInt64(kKeyCmdInFlight, requestedAt); }
 bool loadLearnActive() { return prefs.getBool(kKeyLearnActive, false); }
 bool saveLearnActive(bool active) { return prefs.putBool(kKeyLearnActive, active) == sizeof(bool); }
 

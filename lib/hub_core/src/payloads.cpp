@@ -51,6 +51,8 @@ const char* commandStatusName(CommandStatus status) {
       return "sent";
     case CommandStatus::Failed:
       return "failed";
+    case CommandStatus::Interrupted:
+      return "interrupted";
     case CommandStatus::NoCode:
       return "no-code";
     case CommandStatus::Unsupported:
