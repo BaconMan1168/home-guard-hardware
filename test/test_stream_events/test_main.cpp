@@ -54,6 +54,20 @@ void test_missing_fields_are_ignored() {
   assertEmpty(parseCommandsEvent("/latest", R"({"requestedAt":"soon","value":"OFF"})"));
 }
 
+void test_root_event_skips_already_answered_command() {
+  StreamUpdate u = parseCommandsEvent(
+      "/",
+      R"({"latest":{"value":"OFF","requestedAt":1789262500000},"result":{"requestedAt":1789262500000,"status":"sent"}})");
+  TEST_ASSERT_FALSE(u.latest.has_value());
+}
+
+void test_root_event_keeps_unanswered_command() {
+  StreamUpdate u = parseCommandsEvent(
+      "/",
+      R"({"latest":{"value":"OFF","requestedAt":1789262500000},"result":{"requestedAt":1789262400000,"status":"sent"}})");
+  TEST_ASSERT_TRUE(u.latest.has_value());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_root_event_with_both_children);
@@ -63,5 +77,7 @@ int main() {
   RUN_TEST(test_partial_path_is_ignored);
   RUN_TEST(test_null_data_is_ignored);
   RUN_TEST(test_missing_fields_are_ignored);
+  RUN_TEST(test_root_event_skips_already_answered_command);
+  RUN_TEST(test_root_event_keeps_unanswered_command);
   return UNITY_END();
 }

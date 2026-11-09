@@ -20,6 +20,10 @@ StreamUpdate parseCommandsEvent(const std::string& dataPath, const std::string& 
   JsonVariantConst root = doc.as<JsonVariantConst>();
   if (dataPath == "/") {
     update.latest = parseLatest(root["latest"]);
+    JsonVariantConst answeredAt = root["result"]["requestedAt"];
+    if (update.latest && answeredAt.is<int64_t>() && answeredAt.as<int64_t>() >= update.latest->requestedAt) {
+      update.latest.reset();
+    }
     update.learnRequestAt = parseLearnRequest(root["learnRequest"]);
   } else if (dataPath == "/latest") {
     update.latest = parseLatest(root);

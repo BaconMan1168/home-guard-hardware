@@ -83,6 +83,8 @@ Written once per command the hub handles.
 
 `requestedAt` echoes the command it answers, so the app can match a result to its request.
 
+When its stream (re)connects, the hub skips a `latest` command that `result` already answers, so a reboot or factory reset never rewrites an old result.
+
 ### `commands/learnRequest` (app → hub, new)
 
 ```json
